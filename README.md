@@ -11,7 +11,9 @@ $ man2typst man/ -o reference.typ
 
 Each input is a file or a directory; every documented entity becomes one
 manual entry, and all entries are joined into a single document in the order
-given (a directory contributes its recognised files in name order). Internal
+given (a directory contributes its recognised files in name order). With
+`--split`, each entry is instead written to its own `<topic>.typ` file in the
+`--output` directory — useful when one source file documents many functions. Internal
 topics are skipped unless `--include-internal` is passed: `\keyword{internal}`
 in R (the signal pkgdown filters on), and `_`-prefixed names in Python
 (dunders like `__init__` stay public). Typst `_` definitions are always

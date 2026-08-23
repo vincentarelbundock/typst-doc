@@ -124,7 +124,18 @@ fn signature(name: &str, args: &ast::Arguments, source: &str) -> String {
         parts.push(format!("**{}", render_arg(kwarg, source, &defaults)));
     }
 
-    format!("def {name}({})", parts.join(", "))
+    let one_line = format!("def {name}({})", parts.join(", "));
+    // The `/` and `*` separators are not parameters of their own.
+    let arity = parts
+        .iter()
+        .filter(|part| part.as_str() != "*" && part.as_str() != "/")
+        .count();
+    if one_line.len() <= 78 && arity <= 3 {
+        return one_line;
+    }
+    // Long or many-parameter signatures break like the R and Typst readers':
+    // one parameter per line, two-space indent.
+    format!("def {name}(\n  {}\n)", parts.join(",\n  "))
 }
 
 /// Render one argument, annotation included.

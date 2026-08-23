@@ -482,3 +482,25 @@ class _Impl:
     assert!(by_name("m._Impl").is_internal());
     assert!(by_name("m._Impl.run").is_internal());
 }
+
+/// Many-parameter signatures break one per line, matching the R and Typst
+/// readers, instead of running the whole argument list together.
+#[test]
+fn python_long_signatures_break_one_parameter_per_line() {
+    let py = "def convert(sourcevar, origin, destination, warn=True, nomatch=None):\n    \"\"\"Doc.\"\"\"\n";
+    let topics = python::parse(py, "m.py").expect("Python parses");
+    assert_eq!(
+        topics[0].signature.as_deref(),
+        Some(
+            "def convert(\n  sourcevar,\n  origin,\n  destination,\n  warn=True,\n  nomatch=None\n)"
+        )
+    );
+
+    // Three real parameters stay on one line; `*` is not a parameter.
+    let py = "def f(x, *, flag=True, level=1):\n    \"\"\"Doc.\"\"\"\n";
+    let topics = python::parse(py, "m.py").expect("Python parses");
+    assert_eq!(
+        topics[0].signature.as_deref(),
+        Some("def f(x, *, flag=True, level=1)")
+    );
+}
