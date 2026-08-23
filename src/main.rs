@@ -3,9 +3,9 @@ use std::path::{Path, PathBuf};
 use anyhow::{Context, Result, bail};
 use clap::{Parser, ValueEnum};
 
-use man2typst::typst::escape::typst_string;
-use man2typst::typst::{Options, ParamsFormat};
-use man2typst::{Topic, man, python, r, topic_to_typst, typ};
+use typst_doc::typst::escape::typst_string;
+use typst_doc::typst::{Options, ParamsFormat};
+use typst_doc::{Topic, man, python, r, topic_to_typst, typ};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, ValueEnum)]
 enum Params {
@@ -24,7 +24,7 @@ impl From<Params> for ParamsFormat {
 
 #[derive(Debug, Parser)]
 #[command(
-    name = "man2typst",
+    name = "typst-doc",
     version,
     about = "Render R, Python, Typst, and man page documentation as Typst"
 )]

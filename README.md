@@ -1,14 +1,14 @@
-# man2typst
+# typst-doc
 
 Render R, Python, Typst, and Unix manual-page documentation as
 [Typst](https://typst.app).
 
 ```console
-$ man2typst man/mean_ci.Rd
-$ man2typst stats.py --params terms -o stats.typ
-$ man2typst src/slides.typ -o manual.typ
-$ man2typst /usr/share/man/man1/ls.1
-$ man2typst man/ -o reference.typ
+$ typst-doc man/mean_ci.Rd
+$ typst-doc stats.py --params terms -o stats.typ
+$ typst-doc src/slides.typ -o manual.typ
+$ typst-doc /usr/share/man/man1/ls.1
+$ typst-doc man/ -o reference.typ
 ```
 
 Each input is a file or a directory; every documented entity becomes one

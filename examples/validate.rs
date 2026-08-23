@@ -1,8 +1,8 @@
 //! Convert every `.Rd`, `.py`, `.typ`, or man page file in a directory and check that
 //! the generated Typst parses. Usage: `cargo run --example validate -- <dir>`.
 
-use man2typst::typst::Options;
-use man2typst::{man, python, r, topic_to_typst, typ};
+use typst_doc::typst::Options;
+use typst_doc::{man, python, r, topic_to_typst, typ};
 
 fn main() {
     let dir = std::env::args().nth(1).expect("usage: validate <dir>");

@@ -1,7 +1,7 @@
 //! End-to-end tests: source in, Typst out, validated by Typst's own parser.
 
-use man2typst::typst::{Options, ParamsFormat};
-use man2typst::{man, python, r, topic_to_typst, typ};
+use typst_doc::typst::{Options, ParamsFormat};
+use typst_doc::{man, python, r, topic_to_typst, typ};
 
 /// Assert that generated markup parses as well-formed Typst.
 ///
@@ -397,7 +397,7 @@ fn typ_headings_route_to_sections() {
     assert_eq!(topic.sections.len(), 2);
     assert_eq!(
         topic.seealso,
-        vec![man2typst::ir::Block::Raw("@slide".into())]
+        vec![typst_doc::ir::Block::Raw("@slide".into())]
     );
 
     let output = topic_to_typst(topic, &Options::default());
@@ -564,7 +564,7 @@ fn man_page_round_trips_to_valid_typst() {
     assert_eq!(topic.name, "greet");
     assert_eq!(topic.aliases, vec!["hello"]);
     assert_eq!(
-        man2typst::ir::to_plain_text(&topic.title),
+        typst_doc::ir::to_plain_text(&topic.title),
         "write a greeting"
     );
     // Filling joins the `.B greet` line with the argument lines that follow,
@@ -672,9 +672,9 @@ fn man_underscore_names_are_not_internal() {
 /// comment.
 #[test]
 fn writer_escapes_typst_structure_hiding_in_prose() {
-    use man2typst::ir::{Block, Inline, Param};
+    use typst_doc::ir::{Block, Inline, Param};
 
-    let mut topic = man2typst::Topic::new("x");
+    let mut topic = typst_doc::Topic::new("x");
     topic.title = vec![Inline::text("t")];
     topic.description = vec![Block::Paragraph(vec![
         Inline::Emph(vec![Inline::text("n")]),

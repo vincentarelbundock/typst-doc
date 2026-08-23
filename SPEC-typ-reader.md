@@ -1,6 +1,6 @@
-# SPEC: Typst doc-comment reader for man2typst
+# SPEC: Typst doc-comment reader for typst-doc
 
-Add a third reader to man2typst: `.typ` source files with `///` doc comments,
+Add a third reader to typst-doc: `.typ` source files with `///` doc comments,
 producing `ir::Topic` values rendered by the existing Typst writer. The dialect
 is compatible with what the `tidy` Typst package (v0.4.3) consumes today, with
 three deliberate, documented divergences.
@@ -15,7 +15,7 @@ Read these files before writing code — they are the contract:
 
 ## Background
 
-man2typst renders R (`.Rd`) and Python (`.py`) API documentation as Typst.
+typst-doc renders R (`.Rd`) and Python (`.py`) API documentation as Typst.
 The pipeline: reader → `ir::Topic` → `typst` writer → Typst markup. `Topic`
 is semantic (name, title, signature, params, value, examples, sections);
 `Block`/`Inline` are the prose inside a section.
