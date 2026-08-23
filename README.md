@@ -13,7 +13,15 @@ Each input is a file or a directory; every documented entity becomes one
 manual entry, and all entries are joined into a single document in the order
 given (a directory contributes its recognised files in name order). With
 `--split`, each entry is instead written to its own `<topic>.typ` file in the
-`--output` directory — useful when one source file documents many functions. Internal
+`--output` directory — useful when one source file documents many functions —
+along with an `index.typ` whose table of contents `#include`s every entry, so
+`typst compile index.typ` builds the whole reference manual.
+
+Cross-references resolve within a run: a topic link whose target is converted
+in the same invocation becomes a real link to that entry's heading, and any
+other target renders as plain code, so every generated document compiles on
+its own. Author-written `@name` references passing through Typst doc bodies
+verbatim cannot be rewritten; a dangling one gets a warning instead. Internal
 topics are skipped unless `--include-internal` is passed: `\keyword{internal}`
 in R (the signal pkgdown filters on), and `_`-prefixed names in Python
 (dunders like `__init__` stay public). Typst `_` definitions are always
@@ -128,7 +136,8 @@ The writer emits strings, so `typst-syntax` — Typst's own parser, already a
 dependency of the Typst reader — doubles as a validator. Every test asserts
 that generated markup parses with no errors, and
 `cargo run --example validate -- <dir>` checks a whole directory of `.Rd`,
-`.py`, or `.typ` files.
+`.py`, or `.typ` files. CI runs the tests, clippy, rustfmt, and the validator
+over the fixture corpus in `tests/corpus/` on every push.
 
 ## Credits
 
