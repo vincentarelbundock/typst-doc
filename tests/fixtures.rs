@@ -1,7 +1,7 @@
 //! End-to-end tests: source in, Typst out, validated by Typst's own parser.
 
 use man2typst::typst::{Options, ParamsFormat};
-use man2typst::{python, r, topic_to_typst, typ};
+use man2typst::{man, python, r, topic_to_typst, typ};
 
 /// Assert that generated markup parses as well-formed Typst.
 ///
@@ -529,4 +529,173 @@ fn topic_links_resolve_only_within_the_run() {
     let output = topic_to_typst(&topic, &options);
     assert!(output.contains("#link(label(\"b\"))[`b`]"), "{output}");
     assert_valid_typst(&output);
+}
+
+const MAN: &str = r#".TH GREET 1 "August 2026" "greet 1.0" "User Commands"
+.SH NAME
+greet, hello \- write a greeting
+.SH SYNOPSIS
+.B greet
+[\fB\-n\fR \fINAME\fR]
+[\fIFILE\fR...]
+.SH DESCRIPTION
+Write a greeting to standard output, one per
+.IR FILE .
+.SH OPTIONS
+.TP
+.BR \-n ", " \-\-name =\fINAME\fR
+Greet \fINAME\fR instead of the world.
+.TP
+.B \-\-help
+Display this help and exit.
+.SH EXAMPLES
+.EX
+greet \-n Ada
+.EE
+.SH SEE ALSO
+.BR echo (1)
+"#;
+
+#[test]
+fn man_page_round_trips_to_valid_typst() {
+    let topic = man::parse(MAN).expect("man page parses");
+
+    // `.TH GREET` shouts; the NAME section spells the entity.
+    assert_eq!(topic.name, "greet");
+    assert_eq!(topic.aliases, vec!["hello"]);
+    assert_eq!(
+        man2typst::ir::to_plain_text(&topic.title),
+        "write a greeting"
+    );
+    // Filling joins the `.B greet` line with the argument lines that follow,
+    // as groff would.
+    assert_eq!(
+        topic.signature.as_deref(),
+        Some("greet [-n NAME] [FILE...]")
+    );
+    assert_eq!(topic.params.len(), 2);
+    assert_eq!(topic.params[0].names, vec!["-n", "--name=NAME"]);
+    assert_eq!(topic.examples.len(), 1);
+    assert_eq!(topic.examples[0].code, "greet -n Ada");
+
+    let output = topic_to_typst(&topic, &Options::default());
+    assert_valid_typst(&output);
+    // A section-1 page documents a command, so the fences say so.
+    assert!(output.contains("```sh\ngreet ["), "{output}");
+}
+
+/// `.TP` puts the tag on the *next* line, and only the section title says
+/// whether that tag is a parameter or a term in prose.
+#[test]
+fn man_tp_lists_are_parameters_only_under_options() {
+    let source = ".TH X 1\n.SH NAME\nx \\- t\n.SH DESCRIPTION\n.TP\n.B \\-v\nBe verbose.\n";
+    let topic = man::parse(source).expect("man page parses");
+
+    assert!(topic.params.is_empty());
+    let output = topic_to_typst(&topic, &Options::default());
+    assert!(output.contains("terms.item("), "{output}");
+    assert!(output.contains("-v"), "{output}");
+    assert_valid_typst(&output);
+}
+
+/// Font escapes are state, not markup: `\fB` opened on one line is still
+/// open on the next until `\fR` closes it.
+#[test]
+fn man_font_state_survives_line_breaks() {
+    let source =
+        ".TH X 1\n.SH NAME\nx \\- t\n.SH DESCRIPTION\n\\fBbold across\nthe break\\fR plain\n";
+    let topic = man::parse(source).expect("man page parses");
+    let output = topic_to_typst(&topic, &Options::default());
+
+    assert!(output.contains("*bold across the break*"), "{output}");
+    assert!(output.contains("plain"), "{output}");
+    assert_valid_typst(&output);
+}
+
+/// `ls(1)` in SEE ALSO is a cross-reference: a real link when that page is
+/// converted in the same run, plain code otherwise.
+#[test]
+fn man_cross_references_resolve_within_the_run() {
+    let source = ".TH X 1\n.SH NAME\nx \\- t\n.SH SEE ALSO\n.BR echo (1)\n";
+    let topic = man::parse(source).expect("man page parses");
+
+    let output = topic_to_typst(&topic, &Options::default());
+    assert!(output.contains("`echo`"), "{output}");
+    assert!(!output.contains("link(label("), "{output}");
+
+    let options = Options {
+        known_topics: ["echo".to_owned()].into(),
+        ..Options::default()
+    };
+    let output = topic_to_typst(&topic, &options);
+    assert!(
+        output.contains("#link(label(\"echo\"))[`echo`]"),
+        "{output}"
+    );
+    assert_valid_typst(&output);
+}
+
+/// A manual directory holds files that are not pages: `.so` stubs, and
+/// mdoc(7) pages written in the other macro package. Each is reported as
+/// what it is rather than as a parse failure.
+#[test]
+fn man_non_pages_are_named_not_guessed() {
+    assert!(matches!(
+        man::parse(".so man1/other.1\n"),
+        Err(man::ManError::Redirect { .. })
+    ));
+    assert!(matches!(
+        man::parse(".Dd August 23, 2026\n.Dt SSH 1\n.Sh NAME\n"),
+        Err(man::ManError::Mdoc)
+    ));
+    assert!(matches!(
+        man::parse("just some text\n"),
+        Err(man::ManError::NotAManPage)
+    ));
+}
+
+/// A man page name is not a Python name: `_exit(2)` is public API, and the
+/// underscore convention must not hide it.
+#[test]
+fn man_underscore_names_are_not_internal() {
+    let source = ".TH _EXIT 2\n.SH NAME\n_exit \\- terminate the calling process\n";
+    let topic = man::parse(source).expect("man page parses");
+    assert_eq!(topic.name, "_exit");
+    assert!(!topic.is_internal());
+    // Section 2 documents a C function, so the fences say `c`.
+    assert_eq!(topic.lang.as_deref(), Some("c"));
+}
+
+/// Three characters that are ordinary in prose and structural in Typst, all
+/// found in man pages: `_n_th` never closes its emphasis, `//` starts a
+/// comment that eats the rest of a `#table(..)` call, and `*/` ends a block
+/// comment.
+#[test]
+fn writer_escapes_typst_structure_hiding_in_prose() {
+    use man2typst::ir::{Block, Inline, Param};
+
+    let mut topic = man2typst::Topic::new("x");
+    topic.title = vec![Inline::text("t")];
+    topic.description = vec![Block::Paragraph(vec![
+        Inline::Emph(vec![Inline::text("n")]),
+        Inline::text("th time, see http://example.org/a/b, in "),
+        Inline::Strong(vec![Inline::text("/etc")]),
+        Inline::text("."),
+    ])];
+    topic.params = vec![Param {
+        names: vec!["--url".to_owned()],
+        body: vec![Block::Paragraph(vec![Inline::text(
+            "/ a leading slash, and https://example.org//x",
+        )])],
+        ..Param::default()
+    }];
+
+    let output = topic_to_typst(&topic, &Options::default());
+    assert_valid_typst(&output);
+    // Emphasis with no word boundary needs the function form; the slashes
+    // that would open or close a comment are escaped instead.
+    assert!(output.contains("#emph[n]th time"), "{output}");
+    assert!(output.contains("http:\\//example"), "{output}");
+    assert!(output.contains("*\\/etc*"), "{output}");
+    assert!(output.contains("[\\/ a leading slash"), "{output}");
 }

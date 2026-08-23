@@ -1,0 +1,58 @@
+.\" Hand-written man(7) fixture: one page exercising the macro set.
+.TH GREET 1 "August 2026" "greet 1.0" "User Commands"
+.SH NAME
+greet, hello \- write a greeting to standard output
+.SH SYNOPSIS
+.B greet
+[\fB\-n\fR \fINAME\fR]
+[\fIFILE\fR...]
+.SH DESCRIPTION
+Write
+.I "a friendly greeting"
+to standard output, one per
+.IR FILE .
+With no FILE, or when FILE is \-, read standard input.
+.PP
+The greeting is written in the current locale, and a trailing
+newline is always added\(em even in quiet mode.
+.SS Exit behaviour
+Errors are reported on standard error.
+.SH OPTIONS
+.TP
+.BR \-n ", " \-\-name =\fINAME\fR
+Greet \fINAME\fR instead of the world.
+.TP
+.B \-q, \-\-quiet
+Suppress the greeting, printing only the exit status.
+.RS
+Useful in scripts.
+.RE
+.TP
+.B \-\-help
+Display this help and exit.
+.SH EXAMPLES
+.EX
+greet \-n Ada
+greet \-\-quiet < names.txt
+.EE
+.SH RETURN VALUE
+Returns 0 on success, and 1 when a FILE cannot be read.
+.SH NOTES
+Three shell metacharacters are special:
+.IP \(bu 2
+the pipe,
+.IP \(bu 2
+the ampersand,
+.IP \(bu 2
+the semicolon.
+.PP
+See
+.UR https://example.org/greet
+the project page
+.UE
+for details.
+.SH SEE ALSO
+.BR echo (1),
+.BR printf (3)
+.SH AUTHOR
+Written by A. Coder.

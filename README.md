@@ -1,11 +1,13 @@
 # man2typst
 
-Render R, Python, and Typst API documentation as [Typst](https://typst.app).
+Render R, Python, Typst, and Unix manual-page documentation as
+[Typst](https://typst.app).
 
 ```console
 $ man2typst man/mean_ci.Rd
 $ man2typst stats.py --params terms -o stats.typ
 $ man2typst src/slides.typ -o manual.typ
+$ man2typst /usr/share/man/man1/ls.1
 $ man2typst man/ -o reference.typ
 ```
 
@@ -25,7 +27,7 @@ verbatim cannot be rewritten; a dangling one gets a warning instead. Internal
 topics are skipped unless `--include-internal` is passed: `\keyword{internal}`
 in R (the signal pkgdown filters on), and `_`-prefixed names in Python
 (dunders like `__init__` stay public). Typst `_` definitions are always
-private.
+private. Man pages have no such signal, and `_exit(2)` is public API.
 
 ## Design
 
@@ -35,6 +37,7 @@ Three stages and one shared vocabulary:
 .Rd   --[r]------>  ir::Topic  --[typst]-->  Typst markup
 .py   --[python]->
 .typ  --[typ]---->
+.1    --[man]---->
 ```
 
 `ir` is the contract. It depends on no reader and no writer, and every reader
@@ -51,6 +54,11 @@ The IR has two layers, because documentation formats agree far more about
   typed markup language and is much more expressive here than a docstring, so
   this layer is shaped by Rd's vocabulary. The Python reader under-populates it
   rather than the IR being narrowed to the intersection.
+
+The man reader is the one that has to *infer* the semantic layer rather than
+read it: roff says "hanging indent", never "parameter". That inference lives
+in the reader, behind the same `ir::Topic` the others produce, so the writer
+cannot tell the difference.
 
 Everything is one crate. The module boundaries carry the design; crate
 boundaries would only add versioning and publishing overhead with a single
@@ -130,13 +138,58 @@ the author's formatting survives. `@name` cross-references pass through
 verbatim and resolve when the target is rendered in the same document, since
 every entry's heading carries a `<name>` label.
 
+## Unix manual pages
+
+The fourth input language is roff, in the man(7) macro package: the `.TH`,
+`.SH`, `.TP`, `.B` vocabulary every Linux page is written in, plus the
+low-level escapes those pages use for fonts (`\fB`), special characters
+(`\(bu`), and comments (`\"`). Input files are selected by section number —
+`ls.1`, `printf.3`, `sshd_config.5` — or the `.man` extension. Pages are
+often installed compressed; decompress first (`zcat ls.1.gz > ls.1`).
+
+A man page carries no machine-readable structure below the section level, so
+the reader works in two passes. The first is syntactic: roff lines become
+blocks, and a run of `.TP` items becomes a term list. The second reads the
+section *titles* and routes each to the field it belongs in:
+
+| Section | Field |
+| --- | --- |
+| `NAME` | topic name, aliases, and title |
+| `SYNOPSIS`, `SYNTAX`, `USAGE` | signature |
+| `DESCRIPTION`, `OVERVIEW` | description |
+| anything ending in `OPTIONS` | parameters |
+| `RETURN VALUE`, `EXIT STATUS` | value |
+| `EXAMPLES` | examples, when the section is code alone |
+| `SEE ALSO` | see also |
+| `NOTES`, `AUTHORS`, `REFERENCES`, `STANDARDS` | the matching section |
+
+Everything else keeps its own heading, in source order. The routing is
+deliberately loose: these titles are a convention, not a vocabulary, and a
+section that is not recognised is rendered rather than guessed at.
+
+Three further judgements:
+
+- **The page name comes from `NAME`, not `.TH`.** `.TH LS 1` shouts by
+  convention; the entity is `ls`, and that is what other pages
+  cross-reference. Where the two agree apart from case, `NAME` wins.
+- **`ls(1)` in `SEE ALSO` is a cross-reference**, resolving to a link when
+  that page is converted in the same run, exactly like an Rd `\link`.
+- **Two kinds of file in a manual directory are not pages**: `.so` stubs,
+  which redirect to another entry, and mdoc(7) pages, which are BSD's
+  separate macro package and not read here. Scanning a directory skips them
+  with a warning; naming one explicitly reports what it is.
+
+The section number picks the fence language: 2 and 3 document C functions,
+everything else a command, so signatures and examples are highlighted as `c`
+or `sh`.
+
 ## Output validity
 
 The writer emits strings, so `typst-syntax` — Typst's own parser, already a
 dependency of the Typst reader — doubles as a validator. Every test asserts
 that generated markup parses with no errors, and
 `cargo run --example validate -- <dir>` checks a whole directory of `.Rd`,
-`.py`, or `.typ` files. CI runs the tests, clippy, rustfmt, and the validator
+`.py`, `.typ`, or man page files. CI runs the tests, clippy, rustfmt, and the validator
 over the fixture corpus in `tests/corpus/` on every push.
 
 ## Credits

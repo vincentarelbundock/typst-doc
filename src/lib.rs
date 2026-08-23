@@ -1,4 +1,4 @@
-//! Render R, Python, and Typst API documentation as Typst.
+//! Render R, Python, Typst, and Unix manual-page documentation as Typst.
 //!
 //! The pipeline has three stages and one shared vocabulary:
 //!
@@ -6,6 +6,7 @@
 //! .Rd   --[r]------>  ir::Topic  --[typst]-->  Typst markup
 //! .py   --[python]->
 //! .typ  --[typ]---->
+//! .1    --[man]---->
 //! ```
 //!
 //! [`ir`] is the contract between them: it depends on no reader and no writer,
@@ -13,6 +14,7 @@
 //! produces [`ir::Topic`], and nothing in [`typst`] changes.
 
 pub mod ir;
+pub mod man;
 pub mod python;
 pub mod r;
 pub mod typ;

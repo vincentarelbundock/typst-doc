@@ -4,9 +4,9 @@ version = "0.1.0"
 edition = "2024"
 rust-version = "1.88.0"
 license = "MIT"
-description = "Render R and Python API documentation as Typst"
+description = "Render R, Python, Typst, and man page documentation as Typst"
 readme = "README.md"
-keywords = ["r", "rd", "python", "docstring", "typst"]
+keywords = ["r", "rd", "python", "man", "typst"]
 
 [dependencies]
 anyhow = "1"

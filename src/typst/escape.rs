@@ -99,6 +99,15 @@ pub fn escape_text_at(value: &str, at_line_start: bool) -> String {
                 out.push(character);
                 line_start = false;
             }
+            // `//` starts a line comment and `/*` a block comment, in markup
+            // as well as in code. Prose is full of URLs and paths, and an
+            // unescaped `//` inside a `#table(..)` cell swallows the rest of
+            // the call.
+            '/' if matches!(chars.peek(), Some('/') | Some('*')) => {
+                out.push('\\');
+                out.push(character);
+                line_start = false;
+            }
             // Typst turns `--` and `---` into en/em dashes. Documentation prose
             // often contains CLI flags and literal numeric ranges, so preserve
             // runs.

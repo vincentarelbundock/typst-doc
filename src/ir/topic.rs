@@ -84,11 +84,20 @@ impl Topic {
     /// Python's convention is a leading underscore on any segment of the
     /// qualified name. Dunder segments (`__init__`) are part of a class's
     /// public surface, not private.
+    ///
+    /// The underscore rule is Python's alone, so it is asked of Python topics
+    /// only: `_exit(2)` is a public system call, and an Rd topic may document
+    /// `.Machine`.
     pub fn is_internal(&self) -> bool {
-        self.keywords
+        if self
+            .keywords
             .iter()
             .any(|keyword| keyword.eq_ignore_ascii_case("internal"))
-            || self
+        {
+            return true;
+        }
+        self.lang.as_deref() == Some("python")
+            && self
                 .name
                 .split('.')
                 .any(|segment| segment.starts_with('_') && !is_dunder(segment))

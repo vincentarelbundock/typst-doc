@@ -57,6 +57,9 @@ pub fn topic_to_typst(topic: &Topic, options: &Options) -> String {
 struct Writer<'a> {
     out: String,
     at_line_start: bool,
+    /// The first character of the inline that follows the one being written,
+    /// which decides whether emphasis can use markers or needs a call.
+    next: Option<char>,
     options: &'a Options,
 }
 
@@ -65,6 +68,7 @@ impl<'a> Writer<'a> {
         Self {
             out: String::new(),
             at_line_start: true,
+            next: None,
             options,
         }
     }
@@ -380,9 +384,13 @@ impl<'a> Writer<'a> {
     // -- inlines ----------------------------------------------------------
 
     fn write_inlines(&mut self, inlines: &[Inline]) {
-        for inline in inlines {
+        for (index, inline) in inlines.iter().enumerate() {
+            // Emphasis markers need a word boundary on both sides, so the
+            // character that follows decides how emphasis is written.
+            self.next = inlines.get(index + 1).and_then(leading_char);
             self.write_inline(inline);
         }
+        self.next = None;
     }
 
     fn write_inline(&mut self, inline: &Inline) {
@@ -448,10 +456,34 @@ impl<'a> Writer<'a> {
         }
     }
 
+    /// Write emphasis or strong content.
+    ///
+    /// Typst's `*`/`_` markers only delimit at a word boundary, so `_n_th`
+    /// never closes its emphasis and the document fails to parse. Where a
+    /// boundary is missing — or the content itself starts or ends with a
+    /// space, which the markers also reject — the function form carries the
+    /// same meaning with no such constraint.
     fn wrap(&mut self, marker: &str, children: &[Inline]) {
+        let inner = self.render_isolated_inline(children);
+        // A slash beside a `*` is the other hazard: `/*` opens a block comment
+        // and `*/` closes one, so `*/etc*` is not a bold path.
+        let unsafe_boundary = |c: Option<char>| c.is_some_and(|c| c.is_alphanumeric() || c == '/');
+        if inner.is_empty()
+            || unsafe_boundary(self.out.chars().last())
+            || unsafe_boundary(self.next)
+            || inner.starts_with(char::is_whitespace)
+            || inner.ends_with(char::is_whitespace)
+            || inner.starts_with('/')
+            || inner.ends_with('/')
+        {
+            let function = if marker == "*" { "strong" } else { "emph" };
+            self.out.push_str(&format!("#{function}[{inner}]"));
+            self.at_line_start = false;
+            return;
+        }
+
         self.out.push_str(marker);
-        self.at_line_start = false;
-        self.write_inlines(children);
+        self.out.push_str(&inner);
         self.out.push_str(marker);
         self.at_line_start = false;
     }
@@ -517,7 +549,10 @@ impl<'a> Writer<'a> {
     /// one line, so this never inserts block separation.
     fn render_isolated_inline(&self, inlines: &[Inline]) -> String {
         let mut writer = Writer::new(self.options);
-        writer.at_line_start = false;
+        // Every caller drops the result into a fresh `[..]`, where markup
+        // starts anew: a leading `/`, `-`, or `=` there is a list marker, not
+        // text, exactly as at the start of a line.
+        writer.at_line_start = true;
         writer.write_inlines(inlines);
         writer.out.trim().to_owned()
     }
@@ -617,4 +652,18 @@ fn inlines_contain_math(inlines: &[Inline]) -> bool {
 #[allow(dead_code)]
 fn unused_string_array(values: &[String]) -> String {
     typst_string_array(values)
+}
+
+/// The first character an inline will render as, where knowing it matters:
+/// emphasis markers need a non-word character on either side.
+fn leading_char(inline: &Inline) -> Option<char> {
+    match inline {
+        Inline::Text(value) | Inline::Raw(value) => value.chars().next(),
+        Inline::Verb(_) | Inline::Code(_) | Inline::Sexpr(_) => Some('`'),
+        Inline::Emph(children) | Inline::Strong(children) => {
+            children.first().and_then(leading_char)
+        }
+        Inline::Math(_) | Inline::Link { .. } | Inline::Targeted { .. } => Some('#'),
+        Inline::LineBreak => Some(' '),
+    }
 }

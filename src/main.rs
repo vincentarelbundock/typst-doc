@@ -5,7 +5,7 @@ use clap::{Parser, ValueEnum};
 
 use man2typst::typst::escape::typst_string;
 use man2typst::typst::{Options, ParamsFormat};
-use man2typst::{Topic, python, r, topic_to_typst, typ};
+use man2typst::{Topic, man, python, r, topic_to_typst, typ};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, ValueEnum)]
 enum Params {
@@ -26,12 +26,13 @@ impl From<Params> for ParamsFormat {
 #[command(
     name = "man2typst",
     version,
-    about = "Render R, Python, and Typst API documentation as Typst"
+    about = "Render R, Python, Typst, and man page documentation as Typst"
 )]
 struct Cli {
-    /// Input `.Rd`, `.py`, or `.typ` files, or directories of them. Topics
-    /// are joined into one document, in the order given; a directory
-    /// contributes its recognised files in name order.
+    /// Input `.Rd`, `.py`, `.typ`, or man page (`.1`, `.3`, `.man`) files,
+    /// or directories of them. Topics are joined into one document, in the
+    /// order given; a directory contributes its recognised files in name
+    /// order.
     #[arg(required = true)]
     inputs: Vec<PathBuf>,
 
@@ -78,11 +79,11 @@ fn main() -> Result<()> {
                 .collect();
             files.sort();
             for file in files {
-                let parsed = parse_file(&file)?;
+                let parsed = parse_file(&file, Lenient::Yes)?;
                 topics.extend(parsed.into_iter().map(|topic| (file.clone(), topic)));
             }
         } else {
-            let parsed = parse_file(input)?;
+            let parsed = parse_file(input, Lenient::No)?;
             topics.extend(parsed.into_iter().map(|topic| (input.clone(), topic)));
         }
     }
@@ -287,8 +288,16 @@ fn sanitize(name: &str) -> String {
     name.replace(['/', '\\'], "-")
 }
 
+/// Whether a file that turns out not to be documentation is a warning or an
+/// error. Scanning a directory is lenient; naming a file is not.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Lenient {
+    Yes,
+    No,
+}
+
 /// Parse one source file with the reader its extension selects.
-fn parse_file(path: &Path) -> Result<Vec<Topic>> {
+fn parse_file(path: &Path, lenient: Lenient) -> Result<Vec<Topic>> {
     let source =
         std::fs::read_to_string(path).with_context(|| format!("reading {}", path.display()))?;
     match extension(path).as_deref() {
@@ -299,18 +308,48 @@ fn parse_file(path: &Path) -> Result<Vec<Topic>> {
             .map_err(|error| anyhow::anyhow!("{error}"))
             .with_context(|| format!("parsing {}", path.display())),
         Some("typ") => Ok(typ::parse(&source)),
+        // A manual directory holds more than man(7) pages: `.so` stubs
+        // redirecting to another entry, and mdoc(7) pages this reader does
+        // not read. Scanning a directory skips them; naming one explicitly
+        // reports what it is.
+        Some(extension) if is_man_extension(extension) => match man::parse(&source) {
+            Ok(topic) => Ok(vec![topic]),
+            Err(error @ (man::ManError::Redirect { .. } | man::ManError::Mdoc))
+                if lenient == Lenient::Yes =>
+            {
+                eprintln!("warning: skipping {}: {error}", path.display());
+                Ok(Vec::new())
+            }
+            Err(error) => Err(anyhow::anyhow!("{error}"))
+                .with_context(|| format!("parsing {}", path.display())),
+        },
         _ => bail!(
-            "unrecognised input type: {} (expected .Rd, .py, or .typ)",
+            "unrecognised input type: {} (expected .Rd, .py, .typ, or a man page section such as .1)",
             path.display()
         ),
     }
 }
 
 fn recognised(path: &Path) -> bool {
-    matches!(
-        extension(path).as_deref(),
-        Some("Rd") | Some("rd") | Some("py") | Some("typ")
-    )
+    match extension(path).as_deref() {
+        Some("Rd") | Some("rd") | Some("py") | Some("typ") => true,
+        Some(extension) => is_man_extension(extension),
+        None => false,
+    }
+}
+
+/// Whether an extension names a manual section: `1`, `3`, `8`, and the
+/// suffixed forms `1p`, `3perl`, `3x`. Also `man`, which packages that ship
+/// unnumbered sources use.
+///
+/// A man page has no distinguishing extension of its own, so this is the one
+/// reader selected by a *pattern* rather than a fixed list.
+fn is_man_extension(extension: &str) -> bool {
+    if extension == "man" {
+        return true;
+    }
+    let mut chars = extension.chars();
+    chars.next().is_some_and(|c| c.is_ascii_digit()) && chars.all(|c| c.is_ascii_alphanumeric())
 }
 
 fn extension(path: &Path) -> Option<String> {
