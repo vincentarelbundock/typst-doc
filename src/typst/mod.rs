@@ -24,6 +24,11 @@ pub struct Options {
     pub params_format: ParamsFormat,
     /// Heading level the topic title is rendered at.
     pub base_level: u8,
+    /// Names of every topic rendered in the same run. A topic link whose
+    /// target is in this set becomes a real link to that heading's label;
+    /// any other target degrades to plain code, since a link to a label the
+    /// document never defines is a Typst compile error, not just a dead end.
+    pub known_topics: std::collections::HashSet<String>,
 }
 
 impl Options {
@@ -43,7 +48,7 @@ pub fn topic_to_typst(topic: &Topic, options: &Options) -> String {
     // The MiTeX import is emitted only by documents that actually contain
     // math, so the common case has no external dependency.
     if topic_contains_math(topic) {
-        format!("#import \"@preview/mitex:0.2.5\": mi, mitex\n\n{body}")
+        format!("#import \"@preview/mitex:0.2.7\": mi, mitex\n\n{body}")
     } else {
         body
     }
@@ -168,7 +173,7 @@ impl<'a> Writer<'a> {
             let names = self.render_isolated_inline(&[Inline::Code(param_names(param))]);
             let body = self.render_isolated(&param.body);
             self.out.push_str(&format!(
-                "  ({}, [{}]),\n",
+                "  terms.item([{}], [{}]),\n",
                 names,
                 indent_continuation(&body, 2)
             ));
@@ -298,7 +303,7 @@ impl<'a> Writer<'a> {
             let head = self.render_isolated_inline(&term.term);
             let body = self.render_isolated(&term.body);
             self.out.push_str(&format!(
-                "  ([{}], [{}]),\n",
+                "  terms.item([{}], [{}]),\n",
                 head,
                 indent_continuation(&body, 2)
             ));
@@ -469,9 +474,14 @@ impl<'a> Writer<'a> {
                         self.write_inline(&Inline::Code(format!("{package}::{topic}")));
                         return;
                     }
-                    None if is_label_safe(topic) => {
-                        self.out.push_str(&format!("@{topic}"));
+                    // `@name` would be shorter, but referencing an unnumbered
+                    // heading is a Typst error; a `#link` to the label is not.
+                    None if is_label_safe(topic) && self.options.known_topics.contains(topic) => {
+                        self.out
+                            .push_str(&format!("#link(label({}))[", typst_string(topic)));
                         self.at_line_start = false;
+                        self.write_inline(&Inline::Code(topic.clone()));
+                        self.out.push(']');
                         return;
                     }
                     None => {

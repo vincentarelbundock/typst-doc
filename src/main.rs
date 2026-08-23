@@ -3,6 +3,7 @@ use std::path::{Path, PathBuf};
 use anyhow::{Context, Result, bail};
 use clap::{Parser, ValueEnum};
 
+use man2typst::typst::escape::typst_string;
 use man2typst::typst::{Options, ParamsFormat};
 use man2typst::{Topic, python, r, topic_to_typst, typ};
 
@@ -63,11 +64,6 @@ struct Cli {
 fn main() -> Result<()> {
     let cli = Cli::parse();
 
-    let options = Options {
-        params_format: cli.params.into(),
-        base_level: cli.base_level,
-    };
-
     // Each topic keeps its source path: `--split` falls back to it when two
     // topics share a name.
     let mut topics: Vec<(PathBuf, Topic)> = Vec::new();
@@ -103,21 +99,34 @@ fn main() -> Result<()> {
         bail!("no documented entities found");
     }
 
-    if cli.split {
-        let dir = cli.output.as_ref().expect("clap enforces --output");
-        std::fs::create_dir_all(dir).with_context(|| format!("creating {}", dir.display()))?;
-        for ((_, topic), file_name) in topics.iter().zip(split_file_names(&topics)) {
-            let file = dir.join(file_name);
-            std::fs::write(&file, topic_to_typst(topic, &options))
-                .with_context(|| format!("writing {}", file.display()))?;
-        }
-        return Ok(());
-    }
+    let options = Options {
+        params_format: cli.params.into(),
+        base_level: cli.base_level,
+        known_topics: topics.iter().map(|(_, topic)| topic.name.clone()).collect(),
+    };
 
     let rendered: Vec<String> = topics
         .iter()
         .map(|(_, topic)| topic_to_typst(topic, &options))
         .collect();
+
+    for (topic, target) in dangling_refs(&topics, &rendered) {
+        eprintln!("warning: unresolved reference @{target} (in topic `{topic}`)");
+    }
+
+    if cli.split {
+        let dir = cli.output.as_ref().expect("clap enforces --output");
+        std::fs::create_dir_all(dir).with_context(|| format!("creating {}", dir.display()))?;
+        let names = split_file_names(&topics);
+        for (document, file_name) in rendered.iter().zip(&names) {
+            let file = dir.join(file_name);
+            std::fs::write(&file, document)
+                .with_context(|| format!("writing {}", file.display()))?;
+        }
+        write_index(dir, &names, &options)?;
+        return Ok(());
+    }
+
     let document = rendered.join("\n");
 
     match &cli.output {
@@ -127,6 +136,63 @@ fn main() -> Result<()> {
         None => print!("{document}"),
     }
     Ok(())
+}
+
+/// The entry point of a split manual: a table of contents followed by an
+/// `#include` of every topic file, so one `typst compile index.typ` builds
+/// the whole reference and cross-topic references resolve.
+fn write_index(dir: &Path, names: &[String], options: &Options) -> Result<()> {
+    if names.iter().any(|name| name == "index.typ") {
+        eprintln!("warning: a topic file is named index.typ; not writing an index");
+        return Ok(());
+    }
+    let mut index = format!("#outline(depth: {})\n", options.base_level.max(1));
+    for name in names {
+        index.push_str(&format!("\n#include {}\n", typst_string(name)));
+    }
+    let file = dir.join("index.typ");
+    std::fs::write(&file, index).with_context(|| format!("writing {}", file.display()))
+}
+
+/// References that no topic in this run defines.
+///
+/// Semantic links from the R reader already degrade to plain code when their
+/// target is unknown; what remains are author-written `@name` refs passing
+/// verbatim through Typst doc bodies. Those are Typst compile errors, not
+/// dead ends, so they deserve a warning while the source is still in view.
+/// Detection parses the *rendered* documents, so refs and labels are counted
+/// exactly as Typst will see them.
+fn dangling_refs(topics: &[(PathBuf, Topic)], rendered: &[String]) -> Vec<(String, String)> {
+    let mut labels = std::collections::HashSet::new();
+    let mut refs = Vec::new();
+    for ((_, topic), document) in topics.iter().zip(rendered) {
+        let root = typst_syntax::parse(document);
+        scan_refs(&root, &topic.name, &mut labels, &mut refs);
+    }
+    refs.retain(|(_, target)| !labels.contains(target));
+    refs
+}
+
+fn scan_refs(
+    node: &typst_syntax::SyntaxNode,
+    topic: &str,
+    labels: &mut std::collections::HashSet<String>,
+    refs: &mut Vec<(String, String)>,
+) {
+    match node.kind() {
+        typst_syntax::SyntaxKind::Label => {
+            let text = node.leaf_text();
+            labels.insert(text.trim_matches(['<', '>']).to_owned());
+        }
+        typst_syntax::SyntaxKind::RefMarker => {
+            let text = node.leaf_text();
+            refs.push((topic.to_owned(), text.trim_start_matches('@').to_owned()));
+        }
+        _ => {}
+    }
+    for child in node.children() {
+        scan_refs(child, topic, labels, refs);
+    }
 }
 
 /// One output file name per topic for `--split`, index-aligned with `topics`.
@@ -286,5 +352,18 @@ mod tests {
     fn split_collisions_within_one_file_fall_back_to_a_counter() {
         let topics = vec![entry("man/x.Rd", "x"), entry("man/x.Rd", "x")];
         assert_eq!(split_file_names(&topics), vec!["x-1.typ", "x-2.typ"]);
+    }
+
+    #[test]
+    fn dangling_refs_are_reported_and_resolved_ones_are_not() {
+        let topics = vec![entry("a.typ", "a"), entry("b.typ", "b")];
+        let rendered = vec![
+            "= A <a>\n\nSee @b and @missing.\n".to_owned(),
+            "= B <b>\n\nBack to @a.\n".to_owned(),
+        ];
+        assert_eq!(
+            dangling_refs(&topics, &rendered),
+            vec![("a".to_owned(), "missing".to_owned())]
+        );
     }
 }

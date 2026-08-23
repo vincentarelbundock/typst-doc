@@ -79,11 +79,15 @@ fn rd_round_trips_to_valid_typst() {
             &Options {
                 params_format: format,
                 base_level: 1,
+                ..Options::default()
             },
         );
         assert_valid_typst(&output);
         // Math anywhere in the document pulls in the MiTeX import, once.
         assert_eq!(output.matches("#import").count(), 1);
+        // `\describe` renders as explicit `terms.item` entries; the array
+        // shorthand is deprecated in Typst 0.14+.
+        assert!(output.contains("terms.item("), "{output}");
     }
 }
 
@@ -503,4 +507,26 @@ fn python_long_signatures_break_one_parameter_per_line() {
         topics[0].signature.as_deref(),
         Some("def f(x, *, flag=True, level=1)")
     );
+}
+
+/// `@name` references to unnumbered headings are Typst compile errors, and a
+/// link to a label the document never defines is one too. Topic links
+/// therefore render as `#link` to the heading label when the target is part
+/// of the same run, and as plain code otherwise.
+#[test]
+fn topic_links_resolve_only_within_the_run() {
+    let rd = r"\name{a}\title{t}\seealso{\link{b}}";
+    let topic = r::parse(rd).expect("Rd parses");
+
+    let output = topic_to_typst(&topic, &Options::default());
+    assert!(output.contains("`b`"), "{output}");
+    assert!(!output.contains("label("), "{output}");
+
+    let options = Options {
+        known_topics: ["b".to_owned()].into(),
+        ..Options::default()
+    };
+    let output = topic_to_typst(&topic, &options);
+    assert!(output.contains("#link(label(\"b\"))[`b`]"), "{output}");
+    assert_valid_typst(&output);
 }
