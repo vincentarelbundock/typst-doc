@@ -47,6 +47,68 @@ Three constructs have no direct Typst equivalent:
 - **Code.** R code becomes a plain highlighted raw block, never an executable
   one.
 
+## Typst doc comments
+
+The third input language is Typst itself: packages documented with `///`
+comments in the convention established by the
+[tidy](https://typst.app/universe/package/tidy) package. The reader is
+specified in [SPEC-typ-reader.md](SPEC-typ-reader.md); this section defines
+the dialect it accepts, which is tidy's with three deliberate divergences.
+Existing tidy-style comments (e.g. mosaic's) parse unchanged.
+
+A doc block is a run of consecutive `///` lines. Placed immediately above a
+`#let`, it documents that definition; placed inside a closure's parameter
+list, immediately above a parameter, it documents that parameter — the
+adjacency is the point, since parameter names are never repeated in prose and
+so can never drift out of sync. The body of a block is ordinary Typst markup
+and passes through to the output verbatim, never escaped.
+
+```typ
+/// Creates one logical slide command.
+///
+/// A logical slide is one unit of content.
+///
+/// = Examples
+///
+/// ```typ
+/// #mosaic.slide[Hello]
+/// ```
+///
+/// -> content
+#let slide(
+  /// Which layout resolves this slide.
+  /// -> auto | str | dictionary
+  layout: auto,
+  ..bodies
+) = { ... }
+```
+
+The divergences from tidy:
+
+1. **Type annotations are line-anchored.** If the final non-empty line of a
+   block starts with `->`, it is the type annotation (`|`-separated). A `->`
+   anywhere else is prose. tidy splits on the last `->` occurring *anywhere*,
+   so a description like "maps keys -> values" silently loses its tail into a
+   type; this dialect does not reproduce that.
+2. **Level-1 headings are semantic sections.** `= Value` (or `= Returns`),
+   `= Details`, `= Note`, `= See also`, `= References`, and `= Author` in a
+   definition's doc body route their content to the matching manual section,
+   so a Typst function renders with the same structure as an R or Python one.
+   Unrecognised headings become custom sections; content before the first
+   heading is the title (first paragraph) and description. Under tidy these
+   headings simply render as headings, so the extension degrades gracefully.
+3. **Only documented definitions become manual entries.** A `///` block is
+   the signal that an entity is documentation-worthy, mirroring the Python
+   reader's docstring rule; tidy also lists undocumented public functions.
+   Names starting with `_` are always private.
+
+Definition and parameter structure — names, defaults, the argument list —
+comes from parsing the source with `typst-syntax`, Typst's own parser, rather
+than the regexes tidy uses; defaults are sliced from the original source so
+the author's formatting survives. `@name` cross-references pass through
+verbatim and resolve when the target is rendered in the same document, since
+every entry's heading carries a `<name>` label.
+
 ## Output validity
 
 The writer emits strings, so `typst-syntax` — Typst's own parser — is a
