@@ -4,7 +4,7 @@ use anyhow::{Context, Result, bail};
 use clap::{Parser, ValueEnum};
 
 use man2typst::typst::{Options, ParamsFormat};
-use man2typst::{python, r, topic_to_typst};
+use man2typst::{Topic, python, r, topic_to_typst, typ};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, ValueEnum)]
 enum Params {
@@ -25,11 +25,14 @@ impl From<Params> for ParamsFormat {
 #[command(
     name = "man2typst",
     version,
-    about = "Render R and Python API documentation as Typst"
+    about = "Render R, Python, and Typst API documentation as Typst"
 )]
 struct Cli {
-    /// Input file: an `.Rd` file, or a `.py` file.
-    input: PathBuf,
+    /// Input `.Rd`, `.py`, or `.typ` files, or directories of them. Topics
+    /// are joined into one document, in the order given; a directory
+    /// contributes its recognised files in name order.
+    #[arg(required = true)]
+    inputs: Vec<PathBuf>,
 
     /// Output file. Defaults to stdout.
     #[arg(short, long)]
@@ -42,33 +45,51 @@ struct Cli {
     /// Heading level for the topic title.
     #[arg(long, default_value_t = 1)]
     base_level: u8,
+
+    /// Include internal topics: `\keyword{internal}` in R (the signal
+    /// pkgdown filters on), and `_`-prefixed names in Python. Skipped by
+    /// default. Typst `_` definitions are always private.
+    #[arg(long)]
+    include_internal: bool,
 }
 
 fn main() -> Result<()> {
     let cli = Cli::parse();
-    let source = std::fs::read_to_string(&cli.input)
-        .with_context(|| format!("reading {}", cli.input.display()))?;
 
     let options = Options {
         params_format: cli.params.into(),
         base_level: cli.base_level,
     };
 
-    let topics = match extension(&cli.input).as_deref() {
-        Some("Rd") | Some("rd") => {
-            vec![r::parse(&source).with_context(|| format!("parsing {}", cli.input.display()))?]
+    let mut topics = Vec::new();
+    for input in &cli.inputs {
+        if input.is_dir() {
+            // Unrecognised files in a directory are simply not documentation;
+            // a file named explicitly, by contrast, errors below.
+            let mut files: Vec<PathBuf> = std::fs::read_dir(input)
+                .with_context(|| format!("reading {}", input.display()))?
+                .filter_map(|entry| entry.ok().map(|entry| entry.path()))
+                .filter(|path| recognised(path))
+                .collect();
+            files.sort();
+            for file in &files {
+                topics.extend(parse_file(file)?);
+            }
+        } else {
+            topics.extend(parse_file(input)?);
         }
-        Some("py") => python::parse(&source, &cli.input.to_string_lossy())
-            .map_err(|error| anyhow::anyhow!("{error}"))
-            .with_context(|| format!("parsing {}", cli.input.display()))?,
-        _ => bail!(
-            "unrecognised input type: {} (expected .Rd or .py)",
-            cli.input.display()
-        ),
-    };
+    }
+
+    let found = topics.len();
+    if !cli.include_internal {
+        topics.retain(|topic| !topic.is_internal());
+    }
 
     if topics.is_empty() {
-        bail!("no documented entities found in {}", cli.input.display());
+        if found > 0 {
+            bail!("only internal topics found; pass --include-internal to render them");
+        }
+        bail!("no documented entities found");
     }
 
     let rendered: Vec<String> = topics
@@ -84,6 +105,32 @@ fn main() -> Result<()> {
         None => print!("{document}"),
     }
     Ok(())
+}
+
+/// Parse one source file with the reader its extension selects.
+fn parse_file(path: &Path) -> Result<Vec<Topic>> {
+    let source =
+        std::fs::read_to_string(path).with_context(|| format!("reading {}", path.display()))?;
+    match extension(path).as_deref() {
+        Some("Rd") | Some("rd") => Ok(vec![
+            r::parse(&source).with_context(|| format!("parsing {}", path.display()))?,
+        ]),
+        Some("py") => python::parse(&source, &path.to_string_lossy())
+            .map_err(|error| anyhow::anyhow!("{error}"))
+            .with_context(|| format!("parsing {}", path.display())),
+        Some("typ") => Ok(typ::parse(&source)),
+        _ => bail!(
+            "unrecognised input type: {} (expected .Rd, .py, or .typ)",
+            path.display()
+        ),
+    }
+}
+
+fn recognised(path: &Path) -> bool {
+    matches!(
+        extension(path).as_deref(),
+        Some("Rd") | Some("rd") | Some("py") | Some("typ")
+    )
 }
 
 fn extension(path: &Path) -> Option<String> {

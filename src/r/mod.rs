@@ -16,7 +16,10 @@ pub fn parse(source: &str) -> Result<Topic, rd_source::ParseError> {
 
 /// Convert an already-parsed Rd document to a [`Topic`].
 pub fn from_document(document: &RdDocument) -> Topic {
-    let mut topic = Topic::default();
+    let mut topic = Topic {
+        lang: Some("r".to_owned()),
+        ..Topic::default()
+    };
 
     for node in document.nodes() {
         let Some(tagged) = node.as_tagged() else {

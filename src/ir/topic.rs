@@ -48,6 +48,9 @@ pub struct Topic {
     pub keywords: Vec<String>,
     /// How the entity is called: `\usage`, or a Python signature.
     pub signature: Option<String>,
+    /// The source language, selecting syntax highlighting for the signature
+    /// and example fences: `"r"`, `"python"`, `"typ"`.
+    pub lang: Option<String>,
     pub description: Vec<Block>,
     pub details: Vec<Block>,
     /// `\arguments`, or the Parameters section.
@@ -72,4 +75,26 @@ impl Topic {
             ..Self::default()
         }
     }
+
+    /// Whether this topic documents an internal entity rather than
+    /// user-facing API.
+    ///
+    /// Each source spells the signal differently: Rd marks internal topics
+    /// with `\keyword{internal}` (the same signal pkgdown filters on), while
+    /// Python's convention is a leading underscore on any segment of the
+    /// qualified name. Dunder segments (`__init__`) are part of a class's
+    /// public surface, not private.
+    pub fn is_internal(&self) -> bool {
+        self.keywords
+            .iter()
+            .any(|keyword| keyword.eq_ignore_ascii_case("internal"))
+            || self
+                .name
+                .split('.')
+                .any(|segment| segment.starts_with('_') && !is_dunder(segment))
+    }
+}
+
+fn is_dunder(segment: &str) -> bool {
+    segment.len() > 4 && segment.starts_with("__") && segment.ends_with("__")
 }

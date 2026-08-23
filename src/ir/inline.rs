@@ -24,6 +24,10 @@ pub enum Inline {
     Text(String),
     /// Inline code: `\code{}`, or a docstring's ``literal``.
     Code(String),
+    /// Verbatim Typst markup, written unescaped: the inline counterpart of
+    /// `Block::Raw`. Titles from Typst doc bodies are already markup, and
+    /// [`Inline::Text`] would escape what the author wrote deliberately.
+    Raw(String),
     /// Verbatim text that must not be reflowed.
     Verb(String),
     Emph(Vec<Inline>),
@@ -71,7 +75,10 @@ pub fn to_plain_text(inlines: &[Inline]) -> String {
 fn push_plain_text(inlines: &[Inline], out: &mut String) {
     for inline in inlines {
         match inline {
-            Inline::Text(value) | Inline::Code(value) | Inline::Verb(value) => out.push_str(value),
+            Inline::Text(value)
+            | Inline::Code(value)
+            | Inline::Verb(value)
+            | Inline::Raw(value) => out.push_str(value),
             Inline::Math(value) => out.push_str(value),
             Inline::Emph(children) | Inline::Strong(children) => push_plain_text(children, out),
             Inline::Link { dest, children } => {

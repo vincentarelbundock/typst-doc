@@ -1,19 +1,30 @@
 # man2typst
 
-Render R and Python API documentation as [Typst](https://typst.app).
+Render R, Python, and Typst API documentation as [Typst](https://typst.app).
 
 ```console
 $ man2typst man/mean_ci.Rd
 $ man2typst stats.py --params terms -o stats.typ
+$ man2typst src/slides.typ -o manual.typ
+$ man2typst man/ -o reference.typ
 ```
+
+Each input is a file or a directory; every documented entity becomes one
+manual entry, and all entries are joined into a single document in the order
+given (a directory contributes its recognised files in name order). Internal
+topics are skipped unless `--include-internal` is passed: `\keyword{internal}`
+in R (the signal pkgdown filters on), and `_`-prefixed names in Python
+(dunders like `__init__` stay public). Typst `_` definitions are always
+private.
 
 ## Design
 
 Three stages and one shared vocabulary:
 
 ```text
-.Rd  --[r]------>  ir::Topic  --[typst]-->  Typst markup
-.py  --[python]->
+.Rd   --[r]------>  ir::Topic  --[typst]-->  Typst markup
+.py   --[python]->
+.typ  --[typ]---->
 ```
 
 `ir` is the contract. It depends on no reader and no writer, and every reader
@@ -111,10 +122,11 @@ every entry's heading carries a `<name>` label.
 
 ## Output validity
 
-The writer emits strings, so `typst-syntax` — Typst's own parser — is a
-dev-dependency used as a validator. Every test asserts that generated markup
-parses with no errors, and `cargo run --example validate -- <dir>` checks a
-whole directory of `.Rd` or `.py` files.
+The writer emits strings, so `typst-syntax` — Typst's own parser, already a
+dependency of the Typst reader — doubles as a validator. Every test asserts
+that generated markup parses with no errors, and
+`cargo run --example validate -- <dir>` checks a whole directory of `.Rd`,
+`.py`, or `.typ` files.
 
 ## Credits
 

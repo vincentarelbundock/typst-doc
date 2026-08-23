@@ -1,8 +1,8 @@
-//! Convert every `.Rd` or `.py` file in a directory and check that the
-//! generated Typst parses. Usage: `cargo run --example validate -- <dir>`.
+//! Convert every `.Rd`, `.py`, or `.typ` file in a directory and check that
+//! the generated Typst parses. Usage: `cargo run --example validate -- <dir>`.
 
 use man2typst::typst::Options;
-use man2typst::{python, r, topic_to_typst};
+use man2typst::{python, r, topic_to_typst, typ};
 
 fn main() {
     let dir = std::env::args().nth(1).expect("usage: validate <dir>");
@@ -23,6 +23,7 @@ fn main() {
                 }
             },
             Some("py") => python::parse(&source, &path.to_string_lossy()).unwrap_or_default(),
+            Some("typ") => typ::parse(&source),
             _ => continue,
         };
 

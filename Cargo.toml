@@ -22,10 +22,10 @@ pydocstring = "0.4.1"
 rustpython-parser = "0.4.0"
 html-escape = "0.2.15"
 
+# Typst reader; also validates that generated documents parse as well-formed
+# Typst (tests and the validate example).
+typst-syntax = "0.15.1"
+
 [[example]]
 name = "validate"
 required-features = []
-
-[dev-dependencies]
-# Validates that generated documents parse as well-formed Typst.
-typst-syntax = "0.15.1"

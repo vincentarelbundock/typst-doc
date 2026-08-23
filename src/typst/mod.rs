@@ -78,7 +78,7 @@ impl<'a> Writer<'a> {
         self.write_heading(self.options.level(1), &topic.title, Some(&topic.name));
 
         if let Some(signature) = &topic.signature {
-            self.write_code_block(Some("r"), signature);
+            self.write_code_block(topic.lang.as_deref(), signature);
         }
 
         self.write_section(topic, 2, "Description", &topic.description);
@@ -105,7 +105,7 @@ impl<'a> Writer<'a> {
         if !topic.examples.is_empty() {
             self.write_labelled_heading(2, "Examples");
             for example in &topic.examples {
-                self.write_example(example);
+                self.write_example(topic.lang.as_deref(), example);
             }
         }
 
@@ -204,14 +204,14 @@ impl<'a> Writer<'a> {
         self.ensure_blank_line();
     }
 
-    fn write_example(&mut self, example: &Example) {
+    fn write_example(&mut self, lang: Option<&str>, example: &Example) {
         if !example.run {
             // Not executable, but still worth showing. A comment marks why.
             self.ensure_blank_line();
             self.out.push_str("// not run\n");
             self.at_line_start = true;
         }
-        self.write_code_block(Some("r"), &example.code);
+        self.write_code_block(lang, &example.code);
     }
 
     // -- blocks -----------------------------------------------------------
@@ -252,6 +252,7 @@ impl<'a> Writer<'a> {
             Block::Raw(value) => {
                 self.ensure_blank_line();
                 self.out.push_str(value);
+                self.at_line_start = value.ends_with('\n');
                 self.newline();
             }
         }
@@ -390,6 +391,12 @@ impl<'a> Writer<'a> {
                 if !escaped.trim().is_empty() || escaped.contains('\n') {
                     self.at_line_start = escaped.ends_with('\n');
                 }
+            }
+            Inline::Raw(value) => {
+                // Already Typst markup, authored as such; escaping would
+                // mangle what the author wrote deliberately.
+                self.out.push_str(value);
+                self.at_line_start = false;
             }
             Inline::Code(value) | Inline::Verb(value) => {
                 let fence = longest_backtick_run(value) + 1;

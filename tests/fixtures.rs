@@ -1,7 +1,7 @@
 //! End-to-end tests: source in, Typst out, validated by Typst's own parser.
 
 use man2typst::typst::{Options, ParamsFormat};
-use man2typst::{python, r, topic_to_typst};
+use man2typst::{python, r, topic_to_typst, typ};
 
 /// Assert that generated markup parses as well-formed Typst.
 ///
@@ -142,6 +142,8 @@ fn python_docstring_round_trips_to_valid_typst() {
     assert_valid_typst(&output);
     // No math, so no import.
     assert!(!output.contains("#import"));
+    // The signature fence carries the source language, not a hardcoded `r`.
+    assert!(output.contains("```python\ndef mean_ci"), "{output}");
 }
 
 /// `\item` means two different things in Rd, and the difference is invisible
@@ -282,4 +284,201 @@ fn python_signatures_keep_complex_annotations() {
         topics[0].signature.as_deref(),
         Some("def f(x: list[int], *, flag: bool = True, **kw: Any)")
     );
+}
+
+const TYP: &str = r#"/// Creates one logical slide command.
+///
+/// A logical slide is *one unit* of content, which may render as several
+/// physical frames once incremental steps are applied.
+///
+/// ```typ
+/// #mosaic.slide[Hello]
+/// ```
+///
+/// -> content
+#let slide(
+  /// Which layout resolves this slide.
+  /// -> auto | str | dictionary
+  layout: auto,
+  /// Whether the slide contributes to numbering.
+  /// -> auto | bool
+  numbered: auto,
+  ..bodies
+) = { none }
+"#;
+
+#[test]
+fn typ_doc_comments_round_trip_to_valid_typst() {
+    let topics = typ::parse(TYP);
+    assert_eq!(topics.len(), 1);
+
+    let topic = &topics[0];
+    assert_eq!(topic.name, "slide");
+    assert_eq!(
+        topic.signature.as_deref(),
+        Some("slide(layout: auto, numbered: auto, ..bodies) -> content")
+    );
+    assert_eq!(topic.params.len(), 3);
+    assert_eq!(topic.params[0].names, vec!["layout"]);
+    assert_eq!(
+        topic.params[0].ty.as_deref(),
+        Some("auto | str | dictionary")
+    );
+    assert_eq!(topic.params[0].default.as_deref(), Some("auto"));
+    assert_eq!(topic.params[1].ty.as_deref(), Some("auto | bool"));
+    assert_eq!(topic.params[2].names, vec!["..bodies"]);
+    assert_eq!(topic.params[2].ty, None);
+
+    let output = topic_to_typst(topic, &Options::default());
+    assert_valid_typst(&output);
+    // The signature fence carries the source language.
+    assert!(output.contains("```typ\nslide("), "{output}");
+    // The body is already Typst markup and must arrive verbatim, unescaped.
+    assert!(output.contains("*one unit*"), "{output}");
+    assert!(
+        output.contains("```typ\n#mosaic.slide[Hello]\n```"),
+        "{output}"
+    );
+    assert!(!output.contains("\\*one unit\\*"), "{output}");
+}
+
+/// tidy splits the type off the last `->` occurring anywhere in the block,
+/// truncating prose. Only the final non-empty line is an annotation here.
+#[test]
+fn typ_arrow_in_prose_is_not_a_type() {
+    let source = r#"/// Maps keys -> values eagerly.
+///
+/// The mapping keys -> values is total.
+/// -> int
+#let count(x) = x
+"#;
+    let topics = typ::parse(source);
+    assert_eq!(topics.len(), 1);
+    assert_eq!(topics[0].signature.as_deref(), Some("count(x) -> int"));
+
+    let output = topic_to_typst(&topics[0], &Options::default());
+    assert!(output.contains("Maps keys -> values eagerly."), "{output}");
+    assert!(
+        output.contains("The mapping keys -> values is total."),
+        "{output}"
+    );
+    assert_valid_typst(&output);
+}
+
+#[test]
+fn typ_headings_route_to_sections() {
+    let source = r#"/// Frobnicates.
+///
+/// = Examples
+///
+/// ```typ
+/// #frob(1)
+/// ```
+///
+/// = See also
+///
+/// @slide
+///
+/// = Whatever
+///
+/// Custom prose.
+#let frob(x) = x
+"#;
+    let topics = typ::parse(source);
+    let topic = &topics[0];
+
+    // `Examples` is a custom section, not `Topic::examples`: the doc body
+    // interleaves prose and fenced code, which the examples field cannot hold.
+    assert!(topic.examples.is_empty());
+    assert_eq!(topic.sections.len(), 2);
+    assert_eq!(
+        topic.seealso,
+        vec![man2typst::ir::Block::Raw("@slide".into())]
+    );
+
+    let output = topic_to_typst(topic, &Options::default());
+    assert!(output.contains("== Examples"), "{output}");
+    assert!(output.contains("== Whatever"), "{output}");
+    assert!(output.contains("Custom prose."), "{output}");
+    assert_valid_typst(&output);
+}
+
+#[test]
+fn typ_private_and_undocumented_definitions_are_skipped() {
+    let source = r#"/// Documented but private.
+#let _hidden(x) = x
+
+#let undocumented(x) = x
+"#;
+    assert!(typ::parse(source).is_empty());
+}
+
+/// The regex-parser trap: tidy's `let` regex matches inside string literals.
+/// The CST sees a string as a string.
+#[test]
+fn typ_let_inside_a_string_is_not_a_definition() {
+    let source = r#"/// Holds source text.
+#let snippet = "let fake(x) = x"
+"#;
+    let topics = typ::parse(source);
+    assert_eq!(topics.len(), 1);
+    assert_eq!(topics[0].name, "snippet");
+    assert_eq!(topics[0].signature, None);
+}
+
+#[test]
+fn typ_variable_binding_gets_no_signature() {
+    let source = r#"/// The answer.
+/// -> int
+#let answer = 42
+"#;
+    let topics = typ::parse(source);
+    let topic = &topics[0];
+    assert_eq!(topic.name, "answer");
+    assert_eq!(topic.signature, None);
+    assert!(topic.params.is_empty());
+
+    let output = topic_to_typst(topic, &Options::default());
+    // The type annotation leads the description as inline code.
+    assert!(output.contains("`int`"), "{output}");
+    assert_valid_typst(&output);
+}
+
+/// The internal signal, per source: `\keyword{internal}` in Rd (what pkgdown
+/// filters on), a `_`-prefixed name segment in Python. Dunders stay public.
+#[test]
+fn internal_topics_are_detectable() {
+    let rd = r"\name{sanitize}\title{t}\keyword{internal}\description{Checks inputs.}";
+    let topic = r::parse(rd).expect("Rd parses");
+    assert!(topic.is_internal());
+
+    let rd = r"\name{mean_ci}\title{t}\keyword{misc}\description{Public.}";
+    assert!(!r::parse(rd).expect("Rd parses").is_internal());
+
+    let py = r#"
+def _helper(x):
+    """Private."""
+
+class Public:
+    """A class."""
+    def __init__(self):
+        """Construct."""
+
+class _Impl:
+    """Hidden."""
+    def run(self):
+        """Even public methods of a private class are internal."""
+"#;
+    let topics = python::parse(py, "m.py").expect("Python parses");
+    let by_name = |name: &str| {
+        topics
+            .iter()
+            .find(|topic| topic.name == name)
+            .unwrap_or_else(|| panic!("topic {name}"))
+    };
+    assert!(by_name("m._helper").is_internal());
+    assert!(!by_name("m.Public").is_internal());
+    assert!(!by_name("m.Public.__init__").is_internal());
+    assert!(by_name("m._Impl").is_internal());
+    assert!(by_name("m._Impl.run").is_internal());
 }

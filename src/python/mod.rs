@@ -192,6 +192,7 @@ fn from_docstring(name: &str, signature: Option<String>, source: &str) -> Topic 
     let parsed: Docstring = pydocstring::parse::parse(source).to_model();
     let mut topic = Topic::new(name);
     topic.signature = signature;
+    topic.lang = Some("python".to_owned());
 
     if let Some(summary) = &parsed.summary {
         topic.title = vec![Inline::text(summary.trim())];
