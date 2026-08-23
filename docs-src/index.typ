@@ -7,7 +7,34 @@
   tags: ("overview", "getting started"),
 )) <website-metadata>
 
-#title()
+// The page title is the hero, so `#title()` would only repeat it.
+#let hero() = calepin.elements.target(
+  html: () => html.elem("section", attrs: (
+    class: "hero",
+    style: "text-align: center; margin-block: 2.5rem 3rem;",
+  ))[
+    #html.elem("h1", attrs: (
+      style: "font-family: var(--pico-font-family-monospace, monospace); "
+        + "font-size: clamp(2.75rem, 9vw, 5rem); line-height: 1.05; "
+        + "margin: 0;",
+    ))[typst-doc]
+    #html.elem("p", attrs: (
+      style: "font-size: clamp(1.1rem, 3.2vw, 1.6rem); font-weight: 600; "
+        + "margin: 0.75rem 0 0;",
+    ))[Convert Man Pages to Typst]
+    #html.elem("p", attrs: (
+      style: "margin: 0.4rem 0 0; letter-spacing: 0.08em; "
+        + "text-transform: uppercase; font-size: 0.85rem; opacity: 0.75;",
+    ))[Python · R · Typst · CLI]
+  ],
+  paged: () => align(center)[
+    #text(size: 3em, font: "DejaVu Sans Mono")[typst-doc]
+    #text(size: 1.4em, weight: "bold")[\ Convert Man Pages to Typst]
+    #text(size: 0.9em)[\ Python · R · Typst · CLI]
+  ],
+)
+
+#hero()
 
 Render R, Python, Typst, and Unix manual-page documentation as
 #link("https://typst.app")[Typst]. One reader per input language, one writer,
