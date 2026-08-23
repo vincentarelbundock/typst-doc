@@ -6,7 +6,7 @@
 
 use rd_ast::{RdDocument, RdNode, RdTag};
 
-use crate::ir::{Align, Block, Example, Inline, LinkDest, Param, Section, Term, Topic};
+use crate::ir::{Align, Block, Example, Inline, LinkDest, Param, Section, Target, Term, Topic};
 
 /// Parse Rd source and convert it to a [`Topic`].
 pub fn parse(source: &str) -> Result<Topic, rd_source::ParseError> {
@@ -220,6 +220,23 @@ fn as_block(node: &RdNode) -> Option<Block> {
         RdTag::Deqn => Some(Block::DisplayMath(latex_of(tagged.children()))),
         RdTag::Tabular => Some(table(children)),
         RdTag::Out => Some(Block::Html(plain_text(children))),
+        RdTag::If | RdTag::IfElse => {
+            let (target, then, otherwise) = conditional_parts(children)?;
+            match target {
+                // Both targets, or an unrecognised condition: keep the content
+                // without a guard rather than emitting `if c [x] else [x]`.
+                None => Some(Block::Group(blocks(&then))),
+                Some(target) => Some(Block::Targeted {
+                    target,
+                    then: blocks(&then),
+                    otherwise: blocks(&otherwise),
+                }),
+            }
+        }
+        // `#ifdef unix` selects on the build platform, which Typst has no
+        // notion of. The content is kept: dropping it would lose documentation
+        // on the very platform it was written for.
+        RdTag::IfDef | RdTag::IfNDef => Some(Block::Group(blocks(&platform_parts(children)))),
         RdTag::Subsection => {
             let parts = groups(children);
             if parts.len() >= 2 {
@@ -237,6 +254,69 @@ fn as_block(node: &RdNode) -> Option<Block> {
     }
 }
 
+/// Resolve an Rd output-format condition to a Typst target.
+///
+/// Rd names an output format; Typst compiles one document to several. `html`
+/// and `latex` map onto Typst's two targets. `text` is for plain-text output
+/// only and has no Typst equivalent, so it renders in neither. An unrecognised
+/// condition yields `None`, and the caller keeps the content unconditionally
+/// rather than dropping it.
+fn condition_target(condition: &str) -> Option<Option<Target>> {
+    let mut html = false;
+    let mut print = false;
+    let mut known = false;
+
+    for part in condition.split(',') {
+        match part.trim() {
+            "html" => {
+                html = true;
+                known = true;
+            }
+            "latex" | "pdf" => {
+                print = true;
+                known = true;
+            }
+            "text" => known = true,
+            "" => {}
+            // An unknown condition is not a reason to hide content.
+            _ => return None,
+        }
+    }
+
+    if !known {
+        return None;
+    }
+    Some(match (html, print) {
+        (true, true) => None, // both targets: unconditional
+        (true, false) => Some(Target::Html),
+        (false, true) => Some(Target::Print),
+        (false, false) => Some(Target::Html), // `text` only: neither target
+    })
+}
+
+/// `\if{fmt}{then}` and `\ifelse{fmt}{then}{else}`.
+///
+/// Both branches are kept and guarded with Typst's `target()`, rather than one
+/// being resolved away here: the same document compiles to both PDF and HTML.
+fn conditional_parts(children: &[RdNode]) -> Option<(Option<Target>, Vec<RdNode>, Vec<RdNode>)> {
+    let parts = groups(children);
+    if parts.len() < 2 {
+        return None;
+    }
+    let target = condition_target(plain_text(&parts[0]).trim())?;
+    let otherwise = parts.get(2).cloned().unwrap_or_default();
+    Some((target, parts[1].clone(), otherwise))
+}
+
+/// `#ifdef unix` / `#ifndef windows`.
+///
+/// These select on the *build platform*, which Typst has no notion of, so the
+/// content is kept unconditionally. Dropping it would lose documentation on
+/// the platform it was written for.
+fn platform_parts(children: &[RdNode]) -> Vec<RdNode> {
+    let parts = groups(children);
+    parts.get(1).cloned().unwrap_or_default()
+}
 /// Split `\itemize`/`\enumerate` children into items.
 ///
 /// Unlike `\describe` and `\arguments`, `\item` here is a zero-arity marker:
@@ -415,6 +495,20 @@ fn inlines(nodes: &[RdNode]) -> Vec<Inline> {
                         });
                     }
                     RdTag::Eqn => out.push(Inline::Math(latex_of(children))),
+                    RdTag::Sexpr => {
+                        // R code needing a live session. Shown, not evaluated.
+                        out.push(Inline::Sexpr(plain_text(children).trim().to_owned()))
+                    }
+                    RdTag::If | RdTag::IfElse => match conditional_parts(children) {
+                        Some((None, then, _)) => out.extend(inlines(&then)),
+                        Some((Some(target), then, otherwise)) => out.push(Inline::Targeted {
+                            target,
+                            then: inlines(&then),
+                            otherwise: inlines(&otherwise),
+                        }),
+                        None => out.extend(inlines(children)),
+                    },
+                    RdTag::IfDef | RdTag::IfNDef => out.extend(inlines(&platform_parts(children))),
                     RdTag::Verb => out.push(Inline::Verb(plain_text(children))),
                     RdTag::Dots | RdTag::LDots => out.push(Inline::Code("...".to_owned())),
                     RdTag::Sspace => out.push(Inline::Text(" ".to_owned())),

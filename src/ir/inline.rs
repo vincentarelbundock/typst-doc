@@ -37,6 +37,18 @@ pub enum Inline {
     Math(String),
     /// An explicit line break within a paragraph.
     LineBreak,
+    /// An unevaluated `\Sexpr{}`: R code that needs a live R session.
+    ///
+    /// Rendered visibly rather than dropped or silently unwrapped, so the
+    /// reader can tell the difference between documented content and code
+    /// that never ran.
+    Sexpr(String),
+    /// A branch that applies only to one output target: `\if`, `\ifelse`.
+    Targeted {
+        target: Target,
+        then: Vec<Inline>,
+        otherwise: Vec<Inline>,
+    },
 }
 
 impl Inline {
@@ -75,6 +87,45 @@ fn push_plain_text(inlines: &[Inline], out: &mut String) {
                 }
             }
             Inline::LineBreak => out.push(' '),
+            Inline::Sexpr(code) => out.push_str(code),
+            Inline::Targeted {
+                then, otherwise, ..
+            } => {
+                // Plain text has no target, so the print branch wins.
+                push_plain_text(
+                    if otherwise.is_empty() {
+                        then
+                    } else {
+                        otherwise
+                    },
+                    out,
+                )
+            }
+        }
+    }
+}
+
+/// Which output target a conditional branch applies to.
+///
+/// Rd conditionals name an output *format* (`html`, `latex`, `text`), but a
+/// single Typst document compiles to both PDF and HTML. So rather than
+/// resolving the condition at conversion time and discarding a branch, both
+/// branches survive into the document and Typst's own `target()` picks between
+/// them at compile time.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Target {
+    /// Applies when compiling to HTML.
+    Html,
+    /// Applies when compiling to anything else, PDF included.
+    Print,
+}
+
+impl Target {
+    /// The Typst condition that is true for this target.
+    pub fn condition(self) -> &'static str {
+        match self {
+            Self::Html => "target() == \"html\"",
+            Self::Print => "target() != \"html\"",
         }
     }
 }

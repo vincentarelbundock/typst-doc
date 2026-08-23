@@ -129,7 +129,10 @@ fn python_docstring_round_trips_to_valid_typst() {
 
     let topic = &topics[0];
     assert_eq!(topic.name, "stats.mean_ci");
-    assert_eq!(topic.signature.as_deref(), Some("def mean_ci(x, level)"));
+    assert_eq!(
+        topic.signature.as_deref(),
+        Some("def mean_ci(x, level=0.95)")
+    );
     assert_eq!(topic.params.len(), 2);
     assert_eq!(topic.params[0].names, vec!["x"]);
     assert_eq!(topic.params[0].ty.as_deref(), Some("array_like"));
@@ -181,4 +184,102 @@ fn whitespace_between_inline_nodes_survives() {
     let output = topic_to_typst(&topic, &Options::default());
 
     assert!(output.contains("`get_draws()` keep forever"), "{output}");
+}
+
+/// `\ifelse` used to emit both branches unconditionally, so an HTML-only
+/// phrase and its print alternative ran together in every target. Both
+/// branches are kept, but guarded, so `target()` chooses at compile time.
+#[test]
+fn conditionals_guard_their_branches() {
+    let rd = r"\name{x}\title{t}\details{\ifelse{html}{click here}{see page 3}}";
+    let topic = r::parse(rd).expect("Rd parses");
+    let output = topic_to_typst(&topic, &Options::default());
+
+    assert!(output.contains("target() == \"html\""), "{output}");
+    assert!(output.contains("click here"), "{output}");
+    assert!(output.contains("see page 3"), "{output}");
+    // The two branches must not run together as they did before.
+    assert!(!output.contains("click heresee page 3"), "{output}");
+    assert_valid_typst(&output);
+}
+
+#[test]
+fn latex_only_content_is_guarded_to_the_print_target() {
+    let rd = r"\name{x}\title{t}\details{\if{latex}{print only}}";
+    let topic = r::parse(rd).expect("Rd parses");
+    let output = topic_to_typst(&topic, &Options::default());
+
+    assert!(output.contains("target() != \"html\""), "{output}");
+    assert_valid_typst(&output);
+}
+
+/// A condition naming every target, or one this writer does not recognise, is
+/// no reason to hide the content behind a guard.
+#[test]
+fn unconditional_content_gets_no_guard() {
+    for rd in [
+        r"\name{x}\title{t}\details{\if{html,latex}{everywhere}}",
+        r"\name{x}\title{t}\details{\if{madeUpFormat}{everywhere}}",
+    ] {
+        let topic = r::parse(rd).expect("Rd parses");
+        let output = topic_to_typst(&topic, &Options::default());
+        assert!(output.contains("everywhere"), "{output}");
+        assert!(!output.contains("target()"), "{output}");
+        assert_valid_typst(&output);
+    }
+}
+
+/// `#ifdef` selects on the build platform, which Typst has no notion of, so
+/// the content is kept rather than dropped.
+#[test]
+fn platform_conditionals_keep_their_content() {
+    let rd = "\\name{x}\\title{t}\\details{#ifdef unix\nunix note\n#endif}";
+    let topic = r::parse(rd).expect("Rd parses");
+    let output = topic_to_typst(&topic, &Options::default());
+
+    assert!(output.contains("unix note"), "{output}");
+    assert_valid_typst(&output);
+}
+
+/// `\Sexpr` is R code needing a live session. It renders visibly unevaluated
+/// rather than being unwrapped into prose that looks authored.
+#[test]
+fn sexpr_renders_as_visibly_unevaluated() {
+    let rd = r#"\name{x}\title{t}\description{Version \Sexpr{packageVersion("x")} here}"#;
+    let topic = r::parse(rd).expect("Rd parses");
+    let output = topic_to_typst(&topic, &Options::default());
+
+    assert!(
+        output.contains(r#"\Sexpr{packageVersion("x")}"#),
+        "{output}"
+    );
+    assert_valid_typst(&output);
+}
+
+/// A single HTML element becomes an `html.elem` call guarded by `target()`;
+/// anything more involved is kept verbatim rather than dropped.
+#[test]
+fn out_html_becomes_a_guarded_element() {
+    let rd = r#"\name{x}\title{t}\details{\out{<span class="note">hi</span>}}"#;
+    let topic = r::parse(rd).expect("Rd parses");
+    let output = topic_to_typst(&topic, &Options::default());
+
+    assert!(output.contains("html.elem(\"span\""), "{output}");
+    assert!(output.contains("attrs: (class: \"note\")"), "{output}");
+    assert!(output.contains("target() == \"html\""), "{output}");
+    assert_valid_typst(&output);
+}
+
+/// Annotations come from slicing the original source, so arbitrary annotation
+/// expressions survive in the author's own formatting.
+#[test]
+fn python_signatures_keep_complex_annotations() {
+    let py =
+        "def f(x: list[int], *, flag: bool = True, **kw: Any) -> None:\n    \"\"\"Doc.\"\"\"\n";
+    let topics = python::parse(py, "m.py").expect("Python parses");
+
+    assert_eq!(
+        topics[0].signature.as_deref(),
+        Some("def f(x: list[int], *, flag: bool = True, **kw: Any)")
+    );
 }

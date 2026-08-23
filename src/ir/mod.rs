@@ -16,5 +16,5 @@ pub mod inline;
 pub mod topic;
 
 pub use block::{Align, Block, Term};
-pub use inline::{Inline, LinkDest, to_plain_text};
+pub use inline::{Inline, LinkDest, Target, to_plain_text};
 pub use topic::{Example, Param, Section, Topic};

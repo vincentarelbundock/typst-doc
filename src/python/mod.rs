@@ -8,6 +8,7 @@
 //! far more sparsely than the R reader does. That asymmetry is expected.
 
 use pydocstring::model::{Block as PyBlock, Docstring, SectionKind};
+use rustpython_parser::ast::Ranged;
 use rustpython_parser::ast::{self, Stmt};
 use rustpython_parser::{Parse, ParseError};
 
@@ -31,11 +32,11 @@ pub fn parse(source: &str, path: &str) -> Result<Vec<Topic>, ParseError> {
         topics.push(from_docstring(&module_name, None, &doc));
     }
 
-    collect(&suite, &module_name, &mut topics);
+    collect(&suite, &module_name, source, &mut topics);
     Ok(topics)
 }
 
-fn collect(body: &[Stmt], prefix: &str, out: &mut Vec<Topic>) {
+fn collect(body: &[Stmt], prefix: &str, source: &str, out: &mut Vec<Topic>) {
     for stmt in body {
         match stmt {
             Stmt::FunctionDef(def) => {
@@ -43,7 +44,7 @@ fn collect(body: &[Stmt], prefix: &str, out: &mut Vec<Topic>) {
                 if let Some(doc) = leading_docstring(&def.body) {
                     out.push(from_docstring(
                         &name,
-                        Some(signature(def.name.as_str(), &def.args)),
+                        Some(signature(def.name.as_str(), &def.args, source)),
                         &doc,
                     ));
                 }
@@ -53,7 +54,10 @@ fn collect(body: &[Stmt], prefix: &str, out: &mut Vec<Topic>) {
                 if let Some(doc) = leading_docstring(&def.body) {
                     out.push(from_docstring(
                         &name,
-                        Some(format!("async {}", signature(def.name.as_str(), &def.args))),
+                        Some(format!(
+                            "async {}",
+                            signature(def.name.as_str(), &def.args, source)
+                        )),
                         &doc,
                     ));
                 }
@@ -64,7 +68,7 @@ fn collect(body: &[Stmt], prefix: &str, out: &mut Vec<Topic>) {
                     out.push(from_docstring(&name, None, &doc));
                 }
                 // Methods are documented as topics of their own.
-                collect(&def.body, &name, out);
+                collect(&def.body, &name, source, out);
             }
             _ => {}
         }
@@ -95,43 +99,92 @@ fn leading_docstring(body: &[Stmt]) -> Option<String> {
 }
 
 /// Render a `def` line from the parsed argument list.
-fn signature(name: &str, args: &ast::Arguments) -> String {
+fn signature(name: &str, args: &ast::Arguments, source: &str) -> String {
+    let defaults = defaults_of(args, source);
     let mut parts: Vec<String> = Vec::new();
 
     for arg in &args.posonlyargs {
-        parts.push(render_arg(&arg.def));
+        parts.push(render_arg(&arg.def, source, &defaults));
     }
     if !args.posonlyargs.is_empty() {
         parts.push("/".to_owned());
     }
     for arg in &args.args {
-        parts.push(render_arg(&arg.def));
+        parts.push(render_arg(&arg.def, source, &defaults));
     }
     if let Some(vararg) = &args.vararg {
-        parts.push(format!("*{}", render_arg(vararg)));
+        parts.push(format!("*{}", render_arg(vararg, source, &defaults)));
     } else if !args.kwonlyargs.is_empty() {
         parts.push("*".to_owned());
     }
     for arg in &args.kwonlyargs {
-        parts.push(render_arg(&arg.def));
+        parts.push(render_arg(&arg.def, source, &defaults));
     }
     if let Some(kwarg) = &args.kwarg {
-        parts.push(format!("**{}", render_arg(kwarg)));
+        parts.push(format!("**{}", render_arg(kwarg, source, &defaults)));
     }
 
     format!("def {name}({})", parts.join(", "))
 }
 
-fn render_arg(arg: &ast::Arg) -> String {
-    // Annotations are kept as the identifier only; rendering arbitrary
-    // annotation expressions would mean reimplementing an unparser.
-    match &arg.annotation {
-        Some(annotation) => match annotation.as_ref() {
-            ast::Expr::Name(name) => format!("{}: {}", arg.arg.as_str(), name.id.as_str()),
-            _ => arg.arg.as_str().to_owned(),
-        },
-        None => arg.arg.as_str().to_owned(),
+/// Render one argument, annotation included.
+///
+/// Annotations are recovered by slicing the original source over the node's
+/// `TextRange` rather than re-rendering the expression tree. That keeps the
+/// author's own formatting for arbitrary annotations (`list[int]`,
+/// `Callable[..., T] | None`) and costs no dependency; an unparser would
+/// normalise them into something the author never wrote.
+fn render_arg(arg: &ast::Arg, source: &str, defaults: &DefaultMap) -> String {
+    let mut out = arg.arg.as_str().to_owned();
+
+    if let Some(annotation) = &arg.annotation
+        && let Some(text) = slice(source, annotation.range())
+    {
+        out.push_str(": ");
+        out.push_str(text);
     }
+
+    if let Some(default) = defaults.get(arg.arg.as_str()) {
+        out.push_str(if arg.annotation.is_some() { " = " } else { "=" });
+        out.push_str(default);
+    }
+
+    out
+}
+
+/// Argument name to its rendered default value.
+type DefaultMap = std::collections::HashMap<String, String>;
+
+/// Collect the source text of every default expression, by argument name.
+fn defaults_of(args: &ast::Arguments, source: &str) -> DefaultMap {
+    let mut map = DefaultMap::new();
+
+    let positional = args.posonlyargs.iter().chain(args.args.iter());
+    for arg in positional {
+        if let Some(default) = &arg.default
+            && let Some(text) = slice(source, default.range())
+        {
+            map.insert(arg.def.arg.as_str().to_owned(), text.to_owned());
+        }
+    }
+    for arg in &args.kwonlyargs {
+        if let Some(default) = &arg.default
+            && let Some(text) = slice(source, default.range())
+        {
+            map.insert(arg.def.arg.as_str().to_owned(), text.to_owned());
+        }
+    }
+
+    map
+}
+
+/// Slice the original source over a node's range.
+///
+/// Ranges are byte offsets into the same source that was parsed, so a failed
+/// slice means a bug rather than bad input; it degrades to omitting the
+/// annotation rather than panicking.
+fn slice(source: &str, range: rustpython_parser::text_size::TextRange) -> Option<&str> {
+    source.get(usize::from(range.start())..usize::from(range.end()))
 }
 
 /// Map a parsed docstring onto the topic model.

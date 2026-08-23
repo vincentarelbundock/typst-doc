@@ -4,8 +4,9 @@
 //! MIT licensed, Copyright (c) 2026 rd2md authors. See NOTICE.md.
 
 pub mod escape;
+mod html;
 
-use crate::ir::{Align, Block, Example, Inline, LinkDest, Param, Section, Term, Topic};
+use crate::ir::{Align, Block, Example, Inline, LinkDest, Param, Section, Target, Term, Topic};
 use escape::{escape_text_at, indent_continuation, typst_string, typst_string_array};
 
 /// How to render the parameter list.
@@ -241,6 +242,12 @@ impl<'a> Writer<'a> {
                     .push_str(&format!("#mitex(`{}`)\n", latex.replace('`', "\\`")));
                 self.at_line_start = true;
             }
+            Block::Group(children) => self.write_blocks(children),
+            Block::Targeted {
+                target,
+                then,
+                otherwise,
+            } => self.write_targeted_blocks(*target, then, otherwise),
             Block::Html(html) => self.write_html(html),
             Block::Raw(value) => {
                 self.ensure_blank_line();
@@ -331,18 +338,36 @@ impl<'a> Writer<'a> {
         self.ensure_blank_line();
     }
 
-    /// Raw HTML from `\out{}`.
+    /// A branch that applies to one output target only.
     ///
-    /// Guarded by `target()` so the same file still compiles to PDF. A
-    /// fragment too involved to express as one element is kept verbatim
-    /// rather than dropped.
+    /// Both branches survive into the document: one Typst source compiles to
+    /// both PDF and HTML, so the choice belongs to `target()` at compile time
+    /// rather than to this writer.
+    fn write_targeted_blocks(&mut self, target: Target, then: &[Block], otherwise: &[Block]) {
+        if then.is_empty() && otherwise.is_empty() {
+            return;
+        }
+        self.ensure_blank_line();
+        let then = indent_continuation(&self.render_isolated(then), 2);
+        self.out.push_str(&format!(
+            "#context {{\n  if {} [{}]",
+            target.condition(),
+            then
+        ));
+        if !otherwise.is_empty() {
+            let otherwise = indent_continuation(&self.render_isolated(otherwise), 2);
+            self.out.push_str(&format!(" else [{otherwise}]"));
+        }
+        self.out.push_str("\n}\n");
+        self.at_line_start = true;
+        self.ensure_blank_line();
+    }
+
+    /// Raw HTML from `\out{}`. Handled in [`html`].
     fn write_html(&mut self, html: &str) {
         self.ensure_blank_line();
-        self.out.push_str(&format!(
-            "#if target() == \"html\" [\n  #html.elem(\"span\", {})\n]\n",
-            typst_string(html)
-        ));
-        self.at_line_start = true;
+        self.write_html_fragment(html);
+        self.newline();
         self.ensure_blank_line();
     }
 
@@ -384,6 +409,28 @@ impl<'a> Writer<'a> {
             Inline::LineBreak => {
                 self.out.push_str(" \\\n");
                 self.at_line_start = true;
+            }
+            Inline::Sexpr(code) => {
+                // Visibly unevaluated: `\Sexpr` needs a live R session.
+                self.write_inline(&Inline::Code(format!("\\Sexpr{{{code}}}")));
+            }
+            Inline::Targeted {
+                target,
+                then,
+                otherwise,
+            } => {
+                let rendered_then = self.render_isolated_inline(then);
+                self.out.push_str(&format!(
+                    "#context {{ if {} [{}]",
+                    target.condition(),
+                    rendered_then
+                ));
+                if !otherwise.is_empty() {
+                    let rendered = self.render_isolated_inline(otherwise);
+                    self.out.push_str(&format!(" else [{rendered}]"));
+                }
+                self.out.push_str(" }");
+                self.at_line_start = false;
             }
             Inline::Link { dest, children } => self.write_link(dest, children),
         }
@@ -530,6 +577,10 @@ fn blocks_contain_math(blocks: &[Block]) -> bool {
         Block::Table { rows, .. } => rows
             .iter()
             .any(|row| row.iter().any(|cell| inlines_contain_math(cell))),
+        Block::Group(children) => blocks_contain_math(children),
+        Block::Targeted {
+            then, otherwise, ..
+        } => blocks_contain_math(then) || blocks_contain_math(otherwise),
         Block::Code { .. } | Block::Html(_) | Block::Raw(_) => false,
     })
 }
@@ -539,6 +590,9 @@ fn inlines_contain_math(inlines: &[Inline]) -> bool {
         Inline::Math(_) => true,
         Inline::Emph(children) | Inline::Strong(children) => inlines_contain_math(children),
         Inline::Link { children, .. } => inlines_contain_math(children),
+        Inline::Targeted {
+            then, otherwise, ..
+        } => inlines_contain_math(then) || inlines_contain_math(otherwise),
         _ => false,
     })
 }

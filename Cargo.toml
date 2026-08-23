@@ -20,6 +20,7 @@ rd-source = "0.3.1"
 # Python reader
 pydocstring = "0.4.1"
 rustpython-parser = "0.4.0"
+html-escape = "0.2.15"
 
 [[example]]
 name = "validate"

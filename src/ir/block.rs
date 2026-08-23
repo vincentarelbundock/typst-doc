@@ -50,6 +50,16 @@ pub enum Block {
     DisplayMath(String),
     /// Raw HTML from `\out{}`, re-expressed as `html.elem` where possible.
     Html(String),
+    /// Several blocks with no wrapper of their own: the body of a construct
+    /// that groups content without styling it.
+    Group(Vec<Block>),
+    /// A branch that applies only to one output target: `\if`, `\ifelse`,
+    /// `#ifdef`.
+    Targeted {
+        target: super::inline::Target,
+        then: Vec<Block>,
+        otherwise: Vec<Block>,
+    },
     /// Verbatim Typst, passed through untouched. The escape hatch of last
     /// resort — anything routed here is outside the writer's escaping
     /// guarantees, so readers should prefer a typed variant.
