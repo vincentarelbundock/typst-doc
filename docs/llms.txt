@@ -1,0 +1,8 @@
+# typst-doc
+
+> Render R, Python, Typst, and Unix manual-page documentation as Typst.
+
+## Pages
+
+- [typst-doc](https://vincentarelbundock.github.io/typst-doc/): typst-doc renders R, Python, Typst, and Unix manual-page documentation as Typst markup.
+- [Reference](https://vincentarelbundock.github.io/typst-doc/reference.html): The typst-doc manual page, rendered as Typst by typst-doc itself.

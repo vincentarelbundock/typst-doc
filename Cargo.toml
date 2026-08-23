@@ -29,3 +29,6 @@ typst-syntax = "0.15.1"
 [[example]]
 name = "validate"
 required-features = []
+
+[dev-dependencies]
+clap_mangen = "0.3.3"

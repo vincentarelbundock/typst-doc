@@ -584,6 +584,49 @@ fn man_page_round_trips_to_valid_typst() {
     assert!(output.contains("```sh\ngreet ["), "{output}");
 }
 
+/// Generators such as `clap_mangen` emit the whole usage on one line, which a
+/// raw block will not soft-wrap.
+#[test]
+fn man_long_usage_lines_wrap_under_a_hanging_indent() {
+    let source = ".TH X 1\n.SH NAME\nx \\- t\n.SH SYNOPSIS\n\\fBx\\fR \
+[\\fB\\-o\\fR|\\fB\\-\\-output <FILE>\\fR] [\\fB\\-\\-params\\fR] \
+[\\fB\\-\\-base\\-level\\fR] [\\fB\\-\\-include\\-internal\\fR] \
+[\\fB\\-\\-split\\fR] <\\fIINPUTS\\fR>\n";
+    let topic = man::parse(source).expect("man page parses");
+    let signature = topic.signature.expect("a synopsis");
+
+    assert!(
+        signature.lines().count() > 1,
+        "long usage should wrap: {signature}"
+    );
+    assert!(
+        signature.lines().all(|line| line.chars().count() <= 72),
+        "{signature}"
+    );
+    // Continuations hang under the command name, and no break lands inside a
+    // bracketed group.
+    for line in signature.lines().skip(1) {
+        assert!(line.starts_with("  "), "{signature}");
+        assert_eq!(
+            line.matches('[').count(),
+            line.matches(']').count(),
+            "{signature}"
+        );
+    }
+}
+
+/// Prose that lands in a SYNOPSIS section is not usage, and reflowing a
+/// sentence under a hanging indent helps nobody.
+#[test]
+fn man_synopsis_prose_is_left_alone() {
+    let sentence = "This submenu configures administrative policies using the \
+org.bluez.AdminPolicySet(5) interface and nothing else whatsoever.";
+    let source = format!(".TH X 1\n.SH NAME\nx \\- t\n.SH SYNOPSIS\n{sentence}\n");
+    let topic = man::parse(&source).expect("man page parses");
+
+    assert_eq!(topic.signature.as_deref(), Some(sentence));
+}
+
 /// `.TP` puts the tag on the *next* line, and only the section title says
 /// whether that tag is a parameter or a term in prose.
 #[test]

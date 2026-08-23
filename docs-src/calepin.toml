@@ -1,0 +1,26 @@
+title = "typst-doc"
+description = "Render R, Python, Typst, and Unix manual-page documentation as Typst."
+base-url = "https://vincentarelbundock.github.io/typst-doc"
+theme = "academic"
+pdf = false
+typ = false
+
+[menus]
+
+  [[menus.main]]
+  target = "reference.typ"
+  label = "Reference"
+
+  [[menus.social]]
+  target = "https://github.com/vincentarelbundock/typst-doc"
+  label = "{icon:github}"
+  aria-label = "GitHub"
+
+[footer]
+
+  [[footer.item]]
+  label = "© 2026 Vincent Arel-Bundock"
+
+  [[footer.item]]
+  label = "Made with Calepin."
+  target = "https://vincentarelbundock.github.io/calepin"

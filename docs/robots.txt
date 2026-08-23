@@ -1,0 +1,3 @@
+User-agent: *
+Allow: /
+Sitemap: https://vincentarelbundock.github.io/typst-doc/sitemap.xml

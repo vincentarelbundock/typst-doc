@@ -1,0 +1,10 @@
+{
+  "outputs": [
+    ".calepin/favicon.svg",
+    "index.html",
+    "llms.txt",
+    "reference.html",
+    "robots.txt",
+    "sitemap.xml"
+  ]
+}

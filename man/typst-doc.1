@@ -1,0 +1,76 @@
+.ie \n(.g .ds Aq \(aq
+.el .ds Aq '
+.TH TYPST-DOC 1  "typst-doc 0.1.0" "User Commands"
+.ie \n(.g .ds Aq \(aq
+.el .ds Aq '
+.SH NAME
+typst\-doc \- Render R, Python, Typst, and man page documentation as Typst
+.ie \n(.g .ds Aq \(aq
+.el .ds Aq '
+.SH SYNOPSIS
+\fBtypst\-doc\fR [\fB\-o\fR|\fB\-\-output\fR] [\fB\-\-params\fR] [\fB\-\-base\-level\fR] [\fB\-\-include\-internal\fR] [\fB\-\-split\fR] [\fB\-h\fR|\fB\-\-help\fR] [\fB\-V\fR|\fB\-\-version\fR] <\fIINPUTS\fR> 
+.ie \n(.g .ds Aq \(aq
+.el .ds Aq '
+.SH DESCRIPTION
+typst\-doc reads documentation from source files and writes Typst markup. Each input is a file or a directory; every documented entity becomes one manual entry, and all entries are joined into a single document in the order given. A directory contributes its recognised files in name order.
+.PP
+Four input languages are recognised, by extension: R documentation (.Rd), Python modules and packages (.py), Typst source documented with /// comments (.typ), and Unix manual pages written in the man(7) macro package (a section number such as .1 or .3, or .man).
+.PP
+Cross\-references resolve within a run: a topic link whose target is converted in the same invocation becomes a real link to that entry\*(Aqs heading, and any other target renders as plain code, so every generated document compiles on its own.
+.PP
+Returns 0 on success. An input that cannot be read, or whose extension is not recognised, is an error; unrecognised files found while scanning a directory are skipped instead.
+.ie \n(.g .ds Aq \(aq
+.el .ds Aq '
+.SH OPTIONS
+.TP
+\fB\-o\fR, \fB\-\-output\fR \fI<OUTPUT>\fR
+Output file. Defaults to stdout
+.TP
+\fB\-\-params\fR \fI<PARAMS>\fR [default: table]
+How to render the parameter list: table or terms
+.TP
+\fB\-\-base\-level\fR \fI<BASE_LEVEL>\fR [default: 1]
+Heading level for the topic title
+.TP
+\fB\-\-include\-internal\fR
+Include internal topics: `\\keyword{internal}` in R (the signal pkgdown filters on), and `_`\-prefixed names in Python. Skipped by default. Typst `_` definitions are always private
+.TP
+\fB\-\-split\fR
+Write one `<topic>.typ` file per topic into the \-\-output directory (created if missing) instead of joining everything into one document. Topics sharing a name are disambiguated by their source path, with a warning
+.TP
+\fB\-h\fR, \fB\-\-help\fR
+Print help (see a summary with \*(Aq\-h\*(Aq)
+.TP
+\fB\-V\fR, \fB\-\-version\fR
+Print version
+.TP
+<\fIINPUTS\fR>
+Input `.Rd`, `.py`, `.typ`, or man page (`.1`, `.3`, `.man`) files, or directories of them. Topics are joined into one document, in the order given; a directory contributes its recognised files in name order
+.SH EXAMPLES
+Convert one R help file and print the Typst to standard output:
+.EX
+typst\-doc man/mean_ci.Rd
+.EE
+.PP
+Convert a Python module, rendering parameters as a term list:
+.EX
+typst\-doc stats.py \-\-params terms \-o stats.typ
+.EE
+.PP
+Convert a whole R package's help directory into one manual:
+.EX
+typst\-doc man/ \-o reference.typ
+.EE
+.PP
+Split a package that documents many functions into one file per topic:
+.EX
+typst\-doc src/lib.typ \-\-split \-o reference/
+.EE
+.SH SEE ALSO
+.BR typst (1),
+.BR man (7),
+.BR groff_man (7)
+.ie \n(.g .ds Aq \(aq
+.el .ds Aq '
+.SH AUTHORS
+

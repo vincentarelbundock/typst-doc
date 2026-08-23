@@ -13,6 +13,7 @@
 //! and every reader targets it. Adding a reader means adding a module that
 //! produces [`ir::Topic`], and nothing in [`typst`] changes.
 
+pub mod cli;
 pub mod ir;
 pub mod man;
 pub mod python;

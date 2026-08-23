@@ -1,66 +1,12 @@
 use std::path::{Path, PathBuf};
 
 use anyhow::{Context, Result, bail};
-use clap::{Parser, ValueEnum};
+use clap::Parser;
 
+use typst_doc::cli::Cli;
+use typst_doc::typst::Options;
 use typst_doc::typst::escape::typst_string;
-use typst_doc::typst::{Options, ParamsFormat};
 use typst_doc::{Topic, man, python, r, topic_to_typst, typ};
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, ValueEnum)]
-enum Params {
-    Table,
-    Terms,
-}
-
-impl From<Params> for ParamsFormat {
-    fn from(value: Params) -> Self {
-        match value {
-            Params::Table => Self::Table,
-            Params::Terms => Self::Terms,
-        }
-    }
-}
-
-#[derive(Debug, Parser)]
-#[command(
-    name = "typst-doc",
-    version,
-    about = "Render R, Python, Typst, and man page documentation as Typst"
-)]
-struct Cli {
-    /// Input `.Rd`, `.py`, `.typ`, or man page (`.1`, `.3`, `.man`) files,
-    /// or directories of them. Topics are joined into one document, in the
-    /// order given; a directory contributes its recognised files in name
-    /// order.
-    #[arg(required = true)]
-    inputs: Vec<PathBuf>,
-
-    /// Output file. Defaults to stdout.
-    #[arg(short, long)]
-    output: Option<PathBuf>,
-
-    /// How to render the parameter list.
-    #[arg(long, value_enum, default_value_t = Params::Table)]
-    params: Params,
-
-    /// Heading level for the topic title.
-    #[arg(long, default_value_t = 1)]
-    base_level: u8,
-
-    /// Include internal topics: `\keyword{internal}` in R (the signal
-    /// pkgdown filters on), and `_`-prefixed names in Python. Skipped by
-    /// default. Typst `_` definitions are always private.
-    #[arg(long)]
-    include_internal: bool,
-
-    /// Write one `<topic>.typ` file per topic into the --output directory
-    /// (created if missing) instead of joining everything into one document.
-    /// Topics sharing a name are disambiguated by their source path, with a
-    /// warning.
-    #[arg(long, requires = "output")]
-    split: bool,
-}
 
 fn main() -> Result<()> {
     let cli = Cli::parse();

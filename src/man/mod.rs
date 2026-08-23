@@ -721,7 +721,7 @@ fn special(name: &str) -> String {
         "em" | "-" => "\u{2014}",
         "en" => "\u{2013}",
         "hy" => "-",
-        "aq" => "'",
+        "aq" | "Aq" => "'",
         "dq" | "\"" => "\"",
         "lq" | "Lq" => "\u{201C}",
         "rq" | "Rq" => "\u{201D}",
@@ -1123,7 +1123,9 @@ fn assemble(document: Document) -> Result<Topic, ManError> {
         match kind(&section.title) {
             Kind::Name => {}
             Kind::Synopsis => {
-                let signature = section.lines.join("\n");
+                let signature: Vec<String> =
+                    section.lines.iter().map(|line| wrap_usage(line)).collect();
+                let signature = signature.join("\n");
                 if !signature.trim().is_empty() {
                     topic.signature = Some(signature.trim().to_owned());
                 }
@@ -1358,4 +1360,83 @@ fn title_case(title: &str) -> String {
         })
         .collect::<Vec<_>>()
         .join(" ")
+}
+
+/// Break a long usage line the way a hand-written SYNOPSIS is laid out: one
+/// continuation per fill, hanging-indented under the command name.
+///
+/// Generators such as `clap_mangen` emit the whole usage on one line, which
+/// renders as an unreadable ribbon in a raw block that does not soft-wrap. A
+/// break is only ever inserted at a top-level space, so a bracketed
+/// alternation like `[-o|--output <FILE>]` stays whole.
+fn wrap_usage(line: &str) -> String {
+    const WIDTH: usize = 72;
+    // Beyond this a hanging indent wastes more room than it buys in clarity.
+    const MAX_INDENT: usize = 16;
+
+    let trimmed = line.trim_end();
+    if trimmed.chars().count() <= WIDTH {
+        return trimmed.to_owned();
+    }
+    let leading: String = trimmed
+        .chars()
+        .take_while(|c| c.is_whitespace())
+        .collect::<String>();
+    let groups = usage_groups(trimmed.trim_start());
+    let Some((command, rest)) = groups.split_first() else {
+        return trimmed.to_owned();
+    };
+    // A SYNOPSIS section sometimes holds prose rather than usage. Reflowing a
+    // sentence under a hanging indent helps nobody, so only a line carrying
+    // option or bracket groups is treated as a usage line.
+    let is_usage = rest.iter().any(|group| group.starts_with(['[', '-']));
+    if rest.is_empty() || !is_usage {
+        return trimmed.to_owned();
+    }
+
+    let indent = format!(
+        "{leading}{}",
+        " ".repeat((command.chars().count() + 1).min(MAX_INDENT))
+    );
+    let mut lines = vec![format!("{leading}{command}")];
+    for group in rest {
+        let current = lines.last_mut().expect("seeded above");
+        if current.chars().count() + 1 + group.chars().count() <= WIDTH {
+            current.push(' ');
+            current.push_str(group);
+        } else {
+            lines.push(format!("{indent}{group}"));
+        }
+    }
+    lines.join("\n")
+}
+
+/// Split a usage line at spaces that are not inside a bracketed group.
+fn usage_groups(line: &str) -> Vec<String> {
+    let mut groups = Vec::new();
+    let mut current = String::new();
+    let mut depth = 0usize;
+
+    for c in line.chars() {
+        match c {
+            '[' | '(' | '{' | '<' => {
+                depth += 1;
+                current.push(c);
+            }
+            ']' | ')' | '}' | '>' => {
+                depth = depth.saturating_sub(1);
+                current.push(c);
+            }
+            c if c.is_whitespace() && depth == 0 => {
+                if !current.is_empty() {
+                    groups.push(std::mem::take(&mut current));
+                }
+            }
+            c => current.push(c),
+        }
+    }
+    if !current.is_empty() {
+        groups.push(current);
+    }
+    groups
 }
