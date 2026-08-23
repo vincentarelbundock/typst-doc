@@ -1,0 +1,30 @@
+[package]
+name = "man2typst"
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.88.0"
+license = "MIT"
+description = "Render R and Python API documentation as Typst"
+readme = "README.md"
+keywords = ["r", "rd", "python", "docstring", "typst"]
+
+[dependencies]
+anyhow = "1"
+clap = { version = "4", features = ["derive"] }
+thiserror = "2"
+
+# R reader
+rd-ast = { version = "0.3.1", default-features = false }
+rd-source = "0.3.1"
+
+# Python reader
+pydocstring = "0.4.1"
+rustpython-parser = "0.4.0"
+
+[[example]]
+name = "validate"
+required-features = []
+
+[dev-dependencies]
+# Validates that generated documents parse as well-formed Typst.
+typst-syntax = "0.15.1"
