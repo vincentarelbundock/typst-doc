@@ -21,6 +21,8 @@
 
 use typst_syntax::{LinkedNode, SyntaxKind};
 
+pub mod package;
+
 use crate::ir::{Block, Inline, Param, Section, Topic};
 
 /// Parse Typst source and convert every documented `let` binding to a

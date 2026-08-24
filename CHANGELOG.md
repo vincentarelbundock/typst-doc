@@ -24,5 +24,9 @@ with `///` comments, and Unix manual pages written in man(7) or mdoc(7).
   or an author-written `@name` becomes a real link to the entry it names,
   preferring the nearest definition when a name is shared. A target the run
   does not define is left alone and reported.
+- **A Typst package is read through its entry point.** `typst.toml` names it,
+  and it names the API: each definition is documented under the path a user
+  imports it by (`image`, `layout.image`), and what it does not export is
+  treated as internal.
 - **Every generated document parses as Typst**, checked in CI over a fixture
   corpus by `cargo run --example validate`.

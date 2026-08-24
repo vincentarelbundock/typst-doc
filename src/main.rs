@@ -30,9 +30,28 @@ fn main() -> Result<()> {
         }
     }
 
+    // A Typst package names its own API: the entry point says what each
+    // binding is called and, by not mentioning it, what is private.
+    let api = typ::package::Api::discover(&cli.inputs);
+    let unexported = apply_package_api(&api, &mut topics);
+
     let found = topics.len();
     if !cli.include_internal {
         topics.retain(|(_, topic)| !topic.is_internal());
+        if unexported > 0 {
+            let entrypoints: Vec<String> = api
+                .entrypoints
+                .iter()
+                .map(|path| path.display().to_string())
+                .collect();
+            let plural = if unexported == 1 { "" } else { "s" };
+            eprintln!(
+                "note: {unexported} definition{plural} not exported by {}; \
+                 pass --include-internal to document {}",
+                entrypoints.join(", "),
+                if unexported == 1 { "it" } else { "them" }
+            );
+        }
     }
 
     if topics.is_empty() {
@@ -115,6 +134,45 @@ fn main() -> Result<()> {
         std::fs::write(&file, document).with_context(|| format!("writing {}", file.display()))?;
     }
     write_index(dir, &names)
+}
+
+/// Rename Typst topics to the paths their package exports them under, and
+/// report how many it does not export at all.
+///
+/// A package's `lib.typ` decides both: `component/image.typ`'s `image` is
+/// `image` if the entry point re-exports it plainly, `layout.image` if behind
+/// a module alias, and private if the entry point never mentions it. Since
+/// Typst cannot expose two things under one name, the names this produces are
+/// unique by construction, and the file-path disambiguation is left for
+/// sources no entry point speaks for.
+///
+/// Anything unexported is marked internal, joining `\keyword{internal}` in R
+/// and `_`-prefixed names in Python: the same idea, spelled the way each
+/// language spells it.
+fn apply_package_api(api: &typ::package::Api, topics: &mut [(PathBuf, Topic)]) -> usize {
+    let mut unexported = 0;
+    for (path, topic) in topics {
+        if extension(path).as_deref() != Some("typ") || !api.covers(path) {
+            continue;
+        }
+        match api.public_name(path, &topic.name) {
+            Some(public) => {
+                // A doc comment refers to what the source calls the binding,
+                // so the entry keeps answering to that too. Where two modules
+                // define the same name, both claim it, and the reference
+                // resolves from the scope it was written in.
+                let source_name = std::mem::replace(&mut topic.name, public.clone());
+                if source_name != topic.name {
+                    topic.aliases.push(source_name);
+                }
+            }
+            None => {
+                topic.keywords.push("internal".to_owned());
+                unexported += 1;
+            }
+        }
+    }
+    unexported
 }
 
 /// The entry point of a split manual: a table of contents followed by an

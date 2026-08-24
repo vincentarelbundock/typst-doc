@@ -162,6 +162,14 @@ typst-doc src/lib.typ -o reference/
 ) = { }
 ````
 
+When the input is a package — a `typst.toml` at it or above it — the entry
+point is read, and each definition is named by the path a user imports it
+under: `image` when `lib.typ` re-exports it plainly, `layout.image` when
+behind a module alias. A Typst module cannot bind two things to one name, so
+those names are unique by construction, and what the entry point never
+mentions is not public — unexported definitions are skipped as internal and
+reported, or kept with `--include-internal`.
+
 Structure comes from `typst-syntax`, Typst's own parser, rather than regexes,
 so defaults keep the author's formatting. Existing tidy comments parse
 unchanged; the dialect diverges in three deliberate ways — type annotations

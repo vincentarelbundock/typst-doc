@@ -41,8 +41,11 @@ is written to its own <topic>.typ file in that directory, alongside an \
 index.typ that outlines and includes them all; without it, they are joined \
 into a single document on standard output, in the order given.
 
-Two topics can share a name — the same function documented in two modules, \
-say. Their files and heading labels then take the shortest part of the source \
+A Typst package is read through its entry point: each definition is named by \
+the path it is imported under, and what the entry point does not export is \
+treated as internal. Elsewhere, two topics can share a name — the same \
+function documented in two modules, say. Their files and heading labels then \
+take the shortest part of the source \
 path that tells them apart, each entry shows the file it came from, and a \
 reference to the shared name is left as plain code, since it addresses no \
 single entry.

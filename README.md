@@ -136,6 +136,31 @@ The divergences from tidy:
    reader's docstring rule; tidy also lists undocumented public functions.
    Names starting with `_` are always private.
 
+## Typst packages
+
+A file's location says nothing about how it is imported: a package's entry
+point re-exports what it chooses, under the names it chooses. So when a
+`typst.toml` is found — at the input, or above it — its entry point is read,
+and each definition is named by the path a user actually imports it under:
+
+```typ
+#import "component/image.typ": image             // image
+#import "layout/image.typ" as layout            // layout.image, layout.grid
+#import "component/caption.typ": caption as cap // cap
+```
+
+Two things follow. A Typst module cannot hold two bindings under one name —
+the second shadows the first — so resolved names are unique by construction,
+and a package with an `image` in both `component/` and `layout/` documents
+both without a collision. And what the entry point never mentions is not
+public: unexported definitions are skipped as internal, counted in a note,
+and included by `--include-internal`. Each entry still answers to the name
+its source gives it, so a `` written in `layout/` resolves to
+`layout.image` while the same reference in `component/` resolves to `image`.
+
+A package input is the only case any of this applies to. Loose `.typ` files
+keep their bare names and the path-suffix disambiguation.
+
 Definition and parameter structure — names, defaults, the argument list —
 comes from parsing the source with `typst-syntax`, Typst's own parser, rather
 than the regexes tidy uses; defaults are sliced from the original source so
