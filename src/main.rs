@@ -60,19 +60,29 @@ fn main() -> Result<()> {
         .map(|(path, _)| path.display().to_string())
         .collect();
 
+    let scopes = scopes(&topics, &addresses);
+
     let rendered: Vec<String> = topics
         .iter()
         .zip(&addresses.slugs)
         .zip(&sources)
-        .map(|(((_, topic), slug), source)| {
+        .zip(&scopes)
+        .map(|((((_, topic), slug), source), scope)| {
             let entry = Entry {
                 label: Some(slug.as_str()),
                 source: addresses
                     .ambiguous
                     .contains(&topic.name)
                     .then_some(source.as_str()),
+                scope: Some(scope),
             };
-            topic_to_typst(topic, &entry, &options)
+            let document = topic_to_typst(topic, &entry, &options);
+            resolve_refs(&document, |name| {
+                scope
+                    .get(name)
+                    .or_else(|| options.labels.get(name))
+                    .cloned()
+            })
         })
         .collect();
 
@@ -116,6 +126,65 @@ fn write_index(dir: &Path, names: &[String]) -> Result<()> {
     }
     let file = dir.join("index.typ");
     std::fs::write(&file, index).with_context(|| format!("writing {}", file.display()))
+}
+
+/// Rewrite the `@name` references an author wrote into links.
+///
+/// The R and man readers produce semantic links, which the writer resolves as
+/// it goes. A Typst doc comment instead carries `@name` as markup, in tidy's
+/// convention, and it passes through to the output verbatim — where Typst
+/// rejects it, since referencing an unnumbered heading is an error even when
+/// the name is unique. Resolving it here, against the same scope-first map the
+/// writer uses, turns it into the `#link(label(..))` form that works, and
+/// leaves a name nothing defines untouched for [`dangling_refs`] to report.
+///
+/// The rewrite reads the *rendered* document, so a `@` inside a code block or
+/// a raw span is not a reference and is never touched: only what Typst itself
+/// parses as a `RefMarker` is.
+fn resolve_refs(document: &str, label_of: impl Fn(&str) -> Option<String>) -> String {
+    let mut edits = Vec::new();
+    collect_refs(&typst_syntax::parse(document), 0, &mut edits);
+
+    let mut out = document.to_owned();
+    // Back to front, so an earlier edit cannot shift a later range.
+    for (range, target) in edits.into_iter().rev() {
+        let Some(label) = label_of(&target) else {
+            continue;
+        };
+        out.replace_range(
+            range,
+            &format!(
+                "#link(label({}))[#raw({})]",
+                typst_string(&label),
+                typst_string(&target)
+            ),
+        );
+    }
+    out
+}
+
+/// The byte range and target of every `@name` in the document, in order.
+fn collect_refs(
+    node: &typst_syntax::SyntaxNode,
+    offset: usize,
+    out: &mut Vec<(std::ops::Range<usize>, String)>,
+) -> usize {
+    if node.children().len() == 0 {
+        let text = node.leaf_text();
+        if node.kind() == typst_syntax::SyntaxKind::RefMarker {
+            out.push((
+                offset..offset + text.len(),
+                text.trim_start_matches('@').to_owned(),
+            ));
+        }
+        return offset + text.len();
+    }
+
+    let mut offset = offset;
+    for child in node.children() {
+        offset = collect_refs(child, offset, out);
+    }
+    offset
 }
 
 /// References that no topic in this run defines.
@@ -169,8 +238,9 @@ struct Addresses {
     /// carries, and the stem of the file it is written to.
     slugs: Vec<String>,
     /// Names that more than one topic answers to. Such a name addresses no
-    /// single heading, so references to it cannot resolve, and every entry
-    /// carrying one shows the file it came from instead.
+    /// single heading run-wide, so it resolves only from the scope of one of
+    /// them (see [`scopes`]), and every entry carrying one shows the file it
+    /// came from.
     ambiguous: std::collections::HashSet<String>,
 }
 
@@ -188,6 +258,57 @@ impl Addresses {
             ambiguous: duplicated_names(topics),
         }
     }
+}
+
+/// For each topic, the labels only its own scope can resolve.
+///
+/// A reference is written from somewhere. `@image` in a doc comment inside
+/// `component/` means the `image` defined there, the way an import written at
+/// that spot would, so a shared name still resolves for the topics sitting
+/// beside one of its definitions — the same file first, then the same
+/// directory. It falls back to plain code only where it is genuinely ambiguous
+/// from where it was written, which leaves a package documented in one run
+/// with its links intact.
+fn scopes(
+    topics: &[(PathBuf, Topic)],
+    addresses: &Addresses,
+) -> Vec<std::collections::HashMap<String, String>> {
+    let mut scopes = vec![std::collections::HashMap::new(); topics.len()];
+    if addresses.ambiguous.is_empty() {
+        return scopes;
+    }
+
+    for (index, (path, _)) in topics.iter().enumerate() {
+        for name in &addresses.ambiguous {
+            let candidates = || {
+                topics
+                    .iter()
+                    .enumerate()
+                    .filter(|(_, (_, topic))| &topic.name == name)
+            };
+            let nearest = |matches: Vec<usize>| match matches[..] {
+                [only] => Some(only),
+                _ => None,
+            };
+
+            let same_file = candidates()
+                .filter(|(_, (other, _))| other == path)
+                .map(|(index, _)| index)
+                .collect();
+            let found = nearest(same_file).or_else(|| {
+                let same_directory = candidates()
+                    .filter(|(_, (other, _))| other.parent() == path.parent())
+                    .map(|(index, _)| index)
+                    .collect();
+                nearest(same_directory)
+            });
+
+            if let Some(found) = found {
+                scopes[index].insert(name.clone(), addresses.slugs[found].clone());
+            }
+        }
+    }
+    scopes
 }
 
 /// Names shared by two or more topics in the run.
@@ -218,7 +339,7 @@ fn topic_slugs(topics: &[(PathBuf, Topic)]) -> Vec<String> {
         }
         let chosen = disambiguate(&indices, topics);
         eprintln!(
-            "warning: {} topics named `{name}`; writing {} — references to `{name}` will not resolve",
+            "warning: {} topics named `{name}`; writing {} — a reference to `{name}` resolves to the nearest, or stays plain code",
             indices.len(),
             chosen
                 .iter()
@@ -571,5 +692,51 @@ mod tests {
             })
             .collect();
         assert_eq!(names, vec!["pkg/a.py", "pkg/b.py", "pkg/sub/c.py"]);
+    }
+
+    #[test]
+    fn a_shared_name_resolves_from_beside_one_of_its_definitions() {
+        let topics = vec![
+            entry("src/component/image.typ", "image"),
+            entry("src/component/caption.typ", "caption"),
+            entry("src/layout/image.typ", "image"),
+        ];
+        let addresses = Addresses::of(&topics);
+        let scopes = scopes(&topics, &addresses);
+
+        // `image` is ambiguous run-wide, so it is absent from the shared map.
+        assert!(addresses.ambiguous.contains("image"));
+
+        // Each definition resolves the name to itself, and `caption`, beside
+        // one of them, resolves it to its own directory's.
+        assert_eq!(scopes[0].get("image"), Some(&"component-image".to_owned()));
+        assert_eq!(scopes[1].get("image"), Some(&"component-image".to_owned()));
+        assert_eq!(scopes[2].get("image"), Some(&"layout-image".to_owned()));
+    }
+
+    #[test]
+    fn a_shared_name_stays_unresolved_where_no_definition_is_near() {
+        let topics = vec![
+            entry("src/component/image.typ", "image"),
+            entry("src/layout/image.typ", "image"),
+            entry("src/theme/dark.typ", "dark"),
+        ];
+        let scopes = scopes(&topics, &Addresses::of(&topics));
+        assert_eq!(scopes[2].get("image"), None);
+    }
+
+    #[test]
+    fn author_written_refs_resolve_and_unknown_ones_are_left_alone() {
+        let document = "= T <a>\n\nSee @image and @elsewhere.\n\n```typ\n@image\n```\n";
+        let resolved = resolve_refs(document, |name| {
+            (name == "image").then(|| "component-image".to_owned())
+        });
+
+        assert!(resolved.contains("#link(label(\"component-image\"))[#raw(\"image\")]"));
+        // A target this run does not define may be the including document's,
+        // so it is reported, not rewritten.
+        assert!(resolved.contains("@elsewhere"));
+        // A `@` inside a raw block is not a reference.
+        assert!(resolved.contains("```typ\n@image\n```"));
     }
 }

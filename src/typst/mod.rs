@@ -23,10 +23,11 @@ pub enum ParamsFormat {
 pub struct Options {
     pub params_format: ParamsFormat,
     /// Every topic name in the run that addresses exactly one heading, mapped
-    /// to the label that heading carries. A topic link whose target is missing
-    /// here — never converted, or shared by two topics — degrades to plain
-    /// code, since a link to a label the document never defines, or defines
-    /// twice, is a Typst compile error rather than just a dead end.
+    /// to the label that heading carries. A shared name is absent here and
+    /// resolves, if at all, through the referring topic's [`Entry::scope`].
+    /// A target missing from both degrades to plain code, since a link to a
+    /// label the document never defines, or defines twice, is a Typst compile
+    /// error rather than just a dead end.
     pub labels: std::collections::HashMap<String, String>,
 }
 
@@ -46,6 +47,10 @@ pub struct Entry<'a> {
     /// when another topic shares the name, so an unambiguous entry carries no
     /// provenance noise.
     pub source: Option<&'a str>,
+    /// Labels that only this topic's own scope can resolve, taking precedence
+    /// over [`Options::labels`]. A reference is written from somewhere, and a
+    /// shared name means the nearest one, the way an import does.
+    pub scope: Option<&'a std::collections::HashMap<String, String>>,
 }
 
 /// Render a topic as a standalone Typst document body.
@@ -535,7 +540,7 @@ impl<'a> Writer<'a> {
                     // The label is looked up rather than assumed to be the
                     // name, since a name two topics share addresses neither.
                     None => {
-                        match self.options.labels.get(topic).filter(|l| is_label_safe(l)) {
+                        match self.label_of(topic) {
                             Some(label) => {
                                 self.out
                                     .push_str(&format!("#link(label({}))[", typst_string(label)));
@@ -560,6 +565,15 @@ impl<'a> Writer<'a> {
         }
         self.out.push(']');
         self.at_line_start = false;
+    }
+
+    /// The label a link to `name` should address, nearest scope first.
+    fn label_of(&self, name: &str) -> Option<&String> {
+        self.entry
+            .scope
+            .and_then(|scope| scope.get(name))
+            .or_else(|| self.options.labels.get(name))
+            .filter(|label| is_label_safe(label))
     }
 
     // -- layout helpers ---------------------------------------------------

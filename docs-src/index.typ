@@ -87,9 +87,12 @@ typst-doc R/ -o reference/
 typst compile reference/index.typ
 ```
 
-Cross-references resolve within a run: a link whose target is converted in the
-same invocation becomes a real link to that entry's heading, and any other
-target renders as plain code, so every generated document compiles on its own.
+Cross-references resolve within a run, from where they are written: a link, or
+an author-written `@name` in a Typst doc comment, becomes a real link to the
+entry it names, and where two topics share a name the nearest definition wins —
+the same file first, then the same directory. A target this run does not define
+is left alone and reported; one still ambiguous from where it was written
+renders as plain code.
 Internal topics are skipped unless `--include-internal` is passed.
 
 = R

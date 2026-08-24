@@ -787,6 +787,7 @@ fn a_shared_name_is_disambiguated_by_label_and_provenance() {
     let entry = Entry {
         label: Some("component-image"),
         source: Some("src/component/image.typ"),
+        ..Entry::default()
     };
     let output = topic_to_typst(&topic, &entry, &Options::default());
 
@@ -817,4 +818,28 @@ fn links_follow_the_target_label_and_stop_at_ambiguity() {
     let output = topic_to_typst(&topic, &Entry::default(), &Options::default());
     assert!(output.contains("`image`"), "{output}");
     assert!(!output.contains("label("), "{output}");
+}
+
+/// A reference is written from somewhere: where a name is shared, the topic's
+/// own scope decides which definition it means, ahead of the run-wide map.
+#[test]
+fn a_reference_resolves_in_the_referring_topics_scope_first() {
+    let topic = r::parse(r"\name{a}\title{t}\seealso{\link{image}}").expect("Rd parses");
+
+    let scope = [("image".to_owned(), "component-image".to_owned())].into();
+    let entry = Entry {
+        scope: Some(&scope),
+        ..Entry::default()
+    };
+    let options = Options {
+        labels: [("image".to_owned(), "layout-image".to_owned())].into(),
+        ..Options::default()
+    };
+
+    let output = topic_to_typst(&topic, &entry, &options);
+    assert!(
+        output.contains("#link(label(\"component-image\"))[`image`]"),
+        "{output}"
+    );
+    assert_valid_typst(&output);
 }

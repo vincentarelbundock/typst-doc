@@ -32,7 +32,7 @@ Four input languages are recognised, by extension: R documentation \(\.Rd\), Pyt
 
 Each topic title is a level-1 heading\. To nest the output under a title of your own, set the offset where you include it: \`\#set heading\(offset: 1\)\`\.
 
-Cross-references resolve within a run: a topic link whose target is converted in the same invocation becomes a real link to that entry's heading, and any other target renders as plain code, so every generated document compiles on its own\.
+Cross-references resolve within a run, from where they are written: a link, oran author-written \@name, becomes a real link to the entry it names, choosingthe nearest definition when a name is shared — the same file first, then thesame directory\. A target this run does not define, or one still ambiguous fromwhere it was written, renders as plain code, with a warning\.
 
 Returns 0 on success\. An input that cannot be read, or whose extension is not recognised, is an error; unrecognised files found while scanning a directory are skipped instead\.
 

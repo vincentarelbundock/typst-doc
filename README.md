@@ -21,11 +21,14 @@ one is written to its own `<topic>.typ` file in that directory, along with an
 index.typ` builds the whole reference manual. Without it, the entries are
 joined into a single document on standard output, in the order given.
 
-Cross-references resolve within a run: a topic link whose target is converted
-in the same invocation becomes a real link to that entry's heading, and any
-other target renders as plain code, so every generated document compiles on
-its own. Author-written `@name` references passing through Typst doc bodies
-verbatim cannot be rewritten; a dangling one gets a warning instead. Internal
+Cross-references resolve within a run, from where they are written: a link, or
+an author-written `@name` in a Typst doc comment, becomes a real link to the
+entry it names. Where two topics share a name, the nearest definition wins —
+the same file first, then the same directory — so a package with an `image` in
+both `component/` and `layout/` still links correctly from either side. A
+target this run does not define is left alone, since the document including
+these entries may define it, and reported as a warning; one still ambiguous
+from where it was written renders as plain code. Internal
 topics are skipped unless `--include-internal` is passed: `\keyword{internal}`
 in R (the signal pkgdown filters on), and `_`-prefixed names in Python
 (dunders like `__init__` stay public). Typst `_` definitions are always
