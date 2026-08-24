@@ -32,13 +32,26 @@ impl From<Params> for ParamsFormat {
     long_about = "\
 typst-doc reads documentation from source files and writes Typst markup. Each \
 input is a file or a directory; every documented entity becomes one manual \
-entry, and all entries are joined into a single document in the order given. A \
-directory contributes its recognised files in name order.
+entry. A directory contributes its recognised files in name order.
+
+Where the entries go is decided by the output target. With --output, each one \
+is written to its own <topic>.typ file in that directory, alongside an \
+index.typ that outlines and includes them all; without it, they are joined \
+into a single document on standard output, in the order given.
+
+Two topics can share a name — the same function documented in two modules, \
+say. Their files and heading labels then take the shortest part of the source \
+path that tells them apart, each entry shows the file it came from, and a \
+reference to the shared name is left as plain code, since it addresses no \
+single entry.
 
 Four input languages are recognised, by extension: R documentation (.Rd), \
 Python modules and packages (.py), Typst source documented with /// comments \
 (.typ), and Unix manual pages written in the man(7) macro package (a section \
 number such as .1 or .3, or .man).
+
+Each topic title is a level-1 heading. To nest the output under a title of \
+your own, set the offset where you include it: `#set heading(offset: 1)`.
 
 Cross-references resolve within a run: a topic link whose target is converted \
 in the same invocation becomes a real link to that entry's heading, and any \
@@ -57,7 +70,10 @@ pub struct Cli {
     #[arg(required = true)]
     pub inputs: Vec<PathBuf>,
 
-    /// Output file. Defaults to stdout.
+    /// Directory to write the manual into, created if missing: one
+    /// `<topic>.typ` file per topic, plus an `index.typ` that outlines and
+    /// includes them all. Without it, the whole manual goes to stdout as a
+    /// single document.
     #[arg(short, long)]
     pub output: Option<PathBuf>,
 
@@ -65,20 +81,9 @@ pub struct Cli {
     #[arg(long, value_enum, default_value_t = Params::Table, hide_possible_values = true)]
     pub params: Params,
 
-    /// Heading level for the topic title.
-    #[arg(long, default_value_t = 1)]
-    pub base_level: u8,
-
     /// Include internal topics: `\keyword{internal}` in R (the signal
     /// pkgdown filters on), and `_`-prefixed names in Python. Skipped by
     /// default. Typst `_` definitions are always private.
     #[arg(long)]
     pub include_internal: bool,
-
-    /// Write one `<topic>.typ` file per topic into the --output directory
-    /// (created if missing) instead of joining everything into one document.
-    /// Topics sharing a name are disambiguated by their source path, with a
-    /// warning.
-    #[arg(long, requires = "output")]
-    pub split: bool,
 }

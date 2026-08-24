@@ -206,7 +206,7 @@ fn from_docstring(name: &str, signature: Option<String>, source: &str) -> Topic 
     topic.lang = Some("python".to_owned());
 
     if let Some(summary) = &parsed.summary {
-        topic.title = vec![Inline::text(summary.trim())];
+        topic.title = inlines(&unwrap_lines(summary.trim()));
     }
     if let Some(extended) = &parsed.extended_summary {
         topic.description = prose(extended);
@@ -286,18 +286,18 @@ fn returns(blocks: &[PyBlock]) -> Vec<Block> {
     for block in blocks {
         match block {
             PyBlock::Return(value) => {
-                let mut inlines = Vec::new();
+                let mut parts = Vec::new();
                 if let Some(ty) = &value.type_annotation {
-                    inlines.push(Inline::Code(ty.clone()));
+                    parts.push(Inline::Code(ty.clone()));
                 }
                 if let Some(description) = &value.description {
-                    if !inlines.is_empty() {
-                        inlines.push(Inline::text(" — "));
+                    if !parts.is_empty() {
+                        parts.push(Inline::text(" — "));
                     }
-                    inlines.push(Inline::text(description.trim()));
+                    parts.extend(inlines(&unwrap_lines(description.trim())));
                 }
-                if !inlines.is_empty() {
-                    out.push(Block::Paragraph(inlines));
+                if !parts.is_empty() {
+                    out.push(Block::Paragraph(parts));
                 }
             }
             PyBlock::Paragraph(text) => out.extend(prose(text)),
@@ -351,8 +351,95 @@ fn prose(text: &str) -> Vec<Block> {
     text.split("\n\n")
         .map(str::trim)
         .filter(|part| !part.is_empty())
-        .map(|part| Block::Paragraph(vec![Inline::text(unwrap_lines(part))]))
+        .map(|part| Block::Paragraph(inlines(&unwrap_lines(part))))
         .collect()
+}
+
+/// Split docstring prose into inline runs, recognising the code markup that
+/// Python projects write by hand.
+///
+/// `pydocstring` reports prose verbatim, so a docstring's inline markup arrives
+/// here as literal punctuation and would otherwise be escaped into the output.
+/// Three spellings are common enough to be worth reading, and all three mean
+/// the same thing to a reader: a piece of code.
+///
+/// - `` ``literal`` `` — reStructuredText inline literal.
+/// - ``:role:`target` `` — an interpreted-text role such as `:func:`; the role
+///   is dropped and its target kept, since Typst has nothing to link it to.
+/// - `` `code` `` — a single-backtick span, Markdown's code and reST's default
+///   role. Both intend code, so both render as code.
+///
+/// Anything unterminated is left as text rather than swallowing the rest of the
+/// paragraph.
+fn inlines(text: &str) -> Vec<Inline> {
+    let mut out: Vec<Inline> = Vec::new();
+    let mut pending = String::new();
+    let mut rest = text;
+
+    let flush = |pending: &mut String, out: &mut Vec<Inline>| {
+        if !pending.is_empty() {
+            out.push(Inline::text(std::mem::take(pending)));
+        }
+    };
+
+    while let Some(at) = rest.find(['`', ':']) {
+        let (before, from) = rest.split_at(at);
+        pending.push_str(before);
+
+        // `:role:`target`` — only when a backquote actually follows the role.
+        if let Some(after_colon) = from.strip_prefix(':') {
+            match role_target(after_colon) {
+                Some((target, tail)) => {
+                    flush(&mut pending, &mut out);
+                    out.push(Inline::Code(target.to_owned()));
+                    rest = tail;
+                }
+                None => {
+                    pending.push(':');
+                    rest = after_colon;
+                }
+            }
+            continue;
+        }
+
+        let (fence, body) = match from.strip_prefix("``") {
+            Some(body) => ("``", body),
+            None => ("`", &from[1..]),
+        };
+        match body.find(fence) {
+            Some(end) => {
+                flush(&mut pending, &mut out);
+                out.push(Inline::Code(body[..end].trim().to_owned()));
+                rest = &body[end + fence.len()..];
+            }
+            // Unterminated: keep the backticks as ordinary text.
+            None => {
+                pending.push_str(fence);
+                rest = body;
+            }
+        }
+    }
+
+    pending.push_str(rest);
+    flush(&mut pending, &mut out);
+    out
+}
+
+/// Match `role:`target`` at the start of `text`, after the leading colon.
+///
+/// Returns the target and the remainder of the input.
+fn role_target(text: &str) -> Option<(&str, &str)> {
+    let (role, after) = text.split_once(':')?;
+    if role.is_empty()
+        || !role
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '+' || c == '_' || c == '.')
+    {
+        return None;
+    }
+    let body = after.strip_prefix('`')?;
+    let end = body.find('`')?;
+    Some((body[..end].trim(), &body[end + 1..]))
 }
 
 fn unwrap_lines(text: &str) -> String {

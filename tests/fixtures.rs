@@ -1,7 +1,7 @@
 //! End-to-end tests: source in, Typst out, validated by Typst's own parser.
 
 use typst_doc::typst::{Options, ParamsFormat};
-use typst_doc::{man, python, r, topic_to_typst, typ};
+use typst_doc::{Entry, man, python, r, topic_to_typst, typ};
 
 /// Assert that generated markup parses as well-formed Typst.
 ///
@@ -76,9 +76,9 @@ fn rd_round_trips_to_valid_typst() {
     for format in [ParamsFormat::Table, ParamsFormat::Terms] {
         let output = topic_to_typst(
             &topic,
+            &Entry::default(),
             &Options {
                 params_format: format,
-                base_level: 1,
                 ..Options::default()
             },
         );
@@ -96,7 +96,7 @@ fn escaping_survives_hostile_prose() {
     // Every character that is special in Typst markup, in text position.
     let rd = r#"\name{x}\title{t}\description{A #b $c *d* _e_ `f` <g> @h ~i [j] (k) 1. l -- m}"#;
     let topic = r::parse(rd).expect("Rd parses");
-    let output = topic_to_typst(&topic, &Options::default());
+    let output = topic_to_typst(&topic, &Entry::default(), &Options::default());
     assert_valid_typst(&output);
 }
 
@@ -142,7 +142,7 @@ fn python_docstring_round_trips_to_valid_typst() {
     assert_eq!(topic.params[0].ty.as_deref(), Some("array_like"));
     assert_eq!(topic.raises.len(), 1);
 
-    let output = topic_to_typst(topic, &Options::default());
+    let output = topic_to_typst(topic, &Entry::default(), &Options::default());
     assert_valid_typst(&output);
     // No math, so no import.
     assert!(!output.contains("#import"));
@@ -158,7 +158,7 @@ fn python_docstring_round_trips_to_valid_typst() {
 fn itemize_items_keep_their_content() {
     let rd = r"\name{x}\title{t}\details{\itemize{\item first \item second}}";
     let topic = r::parse(rd).expect("Rd parses");
-    let output = topic_to_typst(&topic, &Options::default());
+    let output = topic_to_typst(&topic, &Entry::default(), &Options::default());
 
     assert!(output.contains("- first"), "{output}");
     assert!(output.contains("- second"), "{output}");
@@ -172,7 +172,7 @@ fn itemize_items_keep_their_content() {
 fn tabular_splits_into_rows_and_columns() {
     let rd = r"\name{x}\title{t}\details{\tabular{lr}{A \tab B \cr C \tab D \cr}}";
     let topic = r::parse(rd).expect("Rd parses");
-    let output = topic_to_typst(&topic, &Options::default());
+    let output = topic_to_typst(&topic, &Entry::default(), &Options::default());
 
     assert!(output.contains("columns: 2"), "{output}");
     assert!(output.contains("align: (left, right,)"), "{output}");
@@ -187,7 +187,7 @@ fn tabular_splits_into_rows_and_columns() {
 fn whitespace_between_inline_nodes_survives() {
     let rd = r"\name{x}\title{t}\description{alias to \code{get_draws()} keep forever}";
     let topic = r::parse(rd).expect("Rd parses");
-    let output = topic_to_typst(&topic, &Options::default());
+    let output = topic_to_typst(&topic, &Entry::default(), &Options::default());
 
     assert!(output.contains("`get_draws()` keep forever"), "{output}");
 }
@@ -199,7 +199,7 @@ fn whitespace_between_inline_nodes_survives() {
 fn conditionals_guard_their_branches() {
     let rd = r"\name{x}\title{t}\details{\ifelse{html}{click here}{see page 3}}";
     let topic = r::parse(rd).expect("Rd parses");
-    let output = topic_to_typst(&topic, &Options::default());
+    let output = topic_to_typst(&topic, &Entry::default(), &Options::default());
 
     assert!(output.contains("target() == \"html\""), "{output}");
     assert!(output.contains("click here"), "{output}");
@@ -213,7 +213,7 @@ fn conditionals_guard_their_branches() {
 fn latex_only_content_is_guarded_to_the_print_target() {
     let rd = r"\name{x}\title{t}\details{\if{latex}{print only}}";
     let topic = r::parse(rd).expect("Rd parses");
-    let output = topic_to_typst(&topic, &Options::default());
+    let output = topic_to_typst(&topic, &Entry::default(), &Options::default());
 
     assert!(output.contains("target() != \"html\""), "{output}");
     assert_valid_typst(&output);
@@ -228,7 +228,7 @@ fn unconditional_content_gets_no_guard() {
         r"\name{x}\title{t}\details{\if{madeUpFormat}{everywhere}}",
     ] {
         let topic = r::parse(rd).expect("Rd parses");
-        let output = topic_to_typst(&topic, &Options::default());
+        let output = topic_to_typst(&topic, &Entry::default(), &Options::default());
         assert!(output.contains("everywhere"), "{output}");
         assert!(!output.contains("target()"), "{output}");
         assert_valid_typst(&output);
@@ -241,7 +241,7 @@ fn unconditional_content_gets_no_guard() {
 fn platform_conditionals_keep_their_content() {
     let rd = "\\name{x}\\title{t}\\details{#ifdef unix\nunix note\n#endif}";
     let topic = r::parse(rd).expect("Rd parses");
-    let output = topic_to_typst(&topic, &Options::default());
+    let output = topic_to_typst(&topic, &Entry::default(), &Options::default());
 
     assert!(output.contains("unix note"), "{output}");
     assert_valid_typst(&output);
@@ -253,7 +253,7 @@ fn platform_conditionals_keep_their_content() {
 fn sexpr_renders_as_visibly_unevaluated() {
     let rd = r#"\name{x}\title{t}\description{Version \Sexpr{packageVersion("x")} here}"#;
     let topic = r::parse(rd).expect("Rd parses");
-    let output = topic_to_typst(&topic, &Options::default());
+    let output = topic_to_typst(&topic, &Entry::default(), &Options::default());
 
     assert!(
         output.contains(r#"\Sexpr{packageVersion("x")}"#),
@@ -268,7 +268,7 @@ fn sexpr_renders_as_visibly_unevaluated() {
 fn out_html_becomes_a_guarded_element() {
     let rd = r#"\name{x}\title{t}\details{\out{<span class="note">hi</span>}}"#;
     let topic = r::parse(rd).expect("Rd parses");
-    let output = topic_to_typst(&topic, &Options::default());
+    let output = topic_to_typst(&topic, &Entry::default(), &Options::default());
 
     assert!(output.contains("html.elem(\"span\""), "{output}");
     assert!(output.contains("attrs: (class: \"note\")"), "{output}");
@@ -333,7 +333,7 @@ fn typ_doc_comments_round_trip_to_valid_typst() {
     assert_eq!(topic.params[2].names, vec!["..bodies"]);
     assert_eq!(topic.params[2].ty, None);
 
-    let output = topic_to_typst(topic, &Options::default());
+    let output = topic_to_typst(topic, &Entry::default(), &Options::default());
     assert_valid_typst(&output);
     // The signature fence carries the source language.
     assert!(output.contains("```typ\nslide("), "{output}");
@@ -360,7 +360,7 @@ fn typ_arrow_in_prose_is_not_a_type() {
     assert_eq!(topics.len(), 1);
     assert_eq!(topics[0].signature.as_deref(), Some("count(x) -> int"));
 
-    let output = topic_to_typst(&topics[0], &Options::default());
+    let output = topic_to_typst(&topics[0], &Entry::default(), &Options::default());
     assert!(output.contains("Maps keys -> values eagerly."), "{output}");
     assert!(
         output.contains("The mapping keys -> values is total."),
@@ -400,7 +400,7 @@ fn typ_headings_route_to_sections() {
         vec![typst_doc::ir::Block::Raw("@slide".into())]
     );
 
-    let output = topic_to_typst(topic, &Options::default());
+    let output = topic_to_typst(topic, &Entry::default(), &Options::default());
     assert!(output.contains("== Examples"), "{output}");
     assert!(output.contains("== Whatever"), "{output}");
     assert!(output.contains("Custom prose."), "{output}");
@@ -442,7 +442,7 @@ fn typ_variable_binding_gets_no_signature() {
     assert_eq!(topic.signature, None);
     assert!(topic.params.is_empty());
 
-    let output = topic_to_typst(topic, &Options::default());
+    let output = topic_to_typst(topic, &Entry::default(), &Options::default());
     // The type annotation leads the description as inline code.
     assert!(output.contains("`int`"), "{output}");
     assert_valid_typst(&output);
@@ -518,15 +518,15 @@ fn topic_links_resolve_only_within_the_run() {
     let rd = r"\name{a}\title{t}\seealso{\link{b}}";
     let topic = r::parse(rd).expect("Rd parses");
 
-    let output = topic_to_typst(&topic, &Options::default());
+    let output = topic_to_typst(&topic, &Entry::default(), &Options::default());
     assert!(output.contains("`b`"), "{output}");
     assert!(!output.contains("label("), "{output}");
 
     let options = Options {
-        known_topics: ["b".to_owned()].into(),
+        labels: [("b".to_owned(), "b".to_owned())].into(),
         ..Options::default()
     };
-    let output = topic_to_typst(&topic, &options);
+    let output = topic_to_typst(&topic, &Entry::default(), &options);
     assert!(output.contains("#link(label(\"b\"))[`b`]"), "{output}");
     assert_valid_typst(&output);
 }
@@ -578,7 +578,7 @@ fn man_page_round_trips_to_valid_typst() {
     assert_eq!(topic.examples.len(), 1);
     assert_eq!(topic.examples[0].code, "greet -n Ada");
 
-    let output = topic_to_typst(&topic, &Options::default());
+    let output = topic_to_typst(&topic, &Entry::default(), &Options::default());
     assert_valid_typst(&output);
     // A section-1 page documents a command, so the fences say so.
     assert!(output.contains("```sh\ngreet ["), "{output}");
@@ -635,7 +635,7 @@ fn man_tp_lists_are_parameters_only_under_options() {
     let topic = man::parse(source).expect("man page parses");
 
     assert!(topic.params.is_empty());
-    let output = topic_to_typst(&topic, &Options::default());
+    let output = topic_to_typst(&topic, &Entry::default(), &Options::default());
     assert!(output.contains("terms.item("), "{output}");
     assert!(output.contains("-v"), "{output}");
     assert_valid_typst(&output);
@@ -648,7 +648,7 @@ fn man_font_state_survives_line_breaks() {
     let source =
         ".TH X 1\n.SH NAME\nx \\- t\n.SH DESCRIPTION\n\\fBbold across\nthe break\\fR plain\n";
     let topic = man::parse(source).expect("man page parses");
-    let output = topic_to_typst(&topic, &Options::default());
+    let output = topic_to_typst(&topic, &Entry::default(), &Options::default());
 
     assert!(output.contains("*bold across the break*"), "{output}");
     assert!(output.contains("plain"), "{output}");
@@ -662,15 +662,15 @@ fn man_cross_references_resolve_within_the_run() {
     let source = ".TH X 1\n.SH NAME\nx \\- t\n.SH SEE ALSO\n.BR echo (1)\n";
     let topic = man::parse(source).expect("man page parses");
 
-    let output = topic_to_typst(&topic, &Options::default());
+    let output = topic_to_typst(&topic, &Entry::default(), &Options::default());
     assert!(output.contains("`echo`"), "{output}");
     assert!(!output.contains("link(label("), "{output}");
 
     let options = Options {
-        known_topics: ["echo".to_owned()].into(),
+        labels: [("echo".to_owned(), "echo".to_owned())].into(),
         ..Options::default()
     };
-    let output = topic_to_typst(&topic, &options);
+    let output = topic_to_typst(&topic, &Entry::default(), &options);
     assert!(
         output.contains("#link(label(\"echo\"))[`echo`]"),
         "{output}"
@@ -733,7 +733,7 @@ fn writer_escapes_typst_structure_hiding_in_prose() {
         ..Param::default()
     }];
 
-    let output = topic_to_typst(&topic, &Options::default());
+    let output = topic_to_typst(&topic, &Entry::default(), &Options::default());
     assert_valid_typst(&output);
     // Emphasis with no word boundary needs the function form; the slashes
     // that would open or close a comment are escaped instead.
@@ -741,4 +741,80 @@ fn writer_escapes_typst_structure_hiding_in_prose() {
     assert!(output.contains("http:\\//example"), "{output}");
     assert!(output.contains("*\\/etc*"), "{output}");
     assert!(output.contains("[\\/ a leading slash"), "{output}");
+}
+
+/// Docstrings carry inline code markup that `pydocstring` reports verbatim.
+/// Reading it keeps code looking like code instead of escaped punctuation.
+#[test]
+fn python_docstring_inline_code_markup_becomes_code() {
+    let py = concat!(
+        "def f(x):\n",
+        "    \"\"\"Summary.\n",
+        "\n",
+        "    Pass ``None`` to keep the input, as :func:`countrycode` does,\n",
+        "    or set `warn` to False.\n",
+        "    \"\"\"\n",
+    );
+    let topics = python::parse(py, "m.py").expect("Python parses");
+    let output = topic_to_typst(&topics[0], &Entry::default(), &Options::default());
+
+    assert!(output.contains("`None`"), "{output}");
+    assert!(output.contains("`countrycode`"), "{output}");
+    assert!(output.contains("`warn`"), "{output}");
+    assert!(!output.contains(":func:"), "{output}");
+    assert_valid_typst(&output);
+}
+
+/// Unterminated markup is prose, not an invitation to swallow the paragraph.
+#[test]
+fn python_docstring_unterminated_backtick_stays_text() {
+    let py = "def f(x):\n    \"\"\"Summary.\n\n    A stray ` backtick and a ratio 3:4 here.\n    \"\"\"\n";
+    let topics = python::parse(py, "m.py").expect("Python parses");
+    let output = topic_to_typst(&topics[0], &Entry::default(), &Options::default());
+
+    assert!(output.contains("stray"), "{output}");
+    assert!(output.contains("backtick"), "{output}");
+    assert!(output.contains("3:4"), "{output}");
+    assert_valid_typst(&output);
+}
+
+/// Two topics of the same name are told apart by their label and by the file
+/// each entry names, since their titles and signatures are identical.
+#[test]
+fn a_shared_name_is_disambiguated_by_label_and_provenance() {
+    let topic = r::parse(r"\name{image}\title{t}").expect("Rd parses");
+
+    let entry = Entry {
+        label: Some("component-image"),
+        source: Some("src/component/image.typ"),
+    };
+    let output = topic_to_typst(&topic, &entry, &Options::default());
+
+    assert!(output.contains("<component-image>"), "{output}");
+    assert!(!output.contains("<image>"), "{output}");
+    assert!(output.contains("`src/component/image.typ`"), "{output}");
+    assert_valid_typst(&output);
+}
+
+/// A link resolves to the target's label, which is not always its name; a
+/// name shared by two topics addresses neither, so it stays plain code.
+#[test]
+fn links_follow_the_target_label_and_stop_at_ambiguity() {
+    let topic = r::parse(r"\name{a}\title{t}\seealso{\link{image}}").expect("Rd parses");
+
+    let options = Options {
+        labels: [("image".to_owned(), "layout-image".to_owned())].into(),
+        ..Options::default()
+    };
+    let output = topic_to_typst(&topic, &Entry::default(), &options);
+    assert!(
+        output.contains("#link(label(\"layout-image\"))[`image`]"),
+        "{output}"
+    );
+    assert_valid_typst(&output);
+
+    // Ambiguous names are simply absent from the map.
+    let output = topic_to_typst(&topic, &Entry::default(), &Options::default());
+    assert!(output.contains("`image`"), "{output}");
+    assert!(!output.contains("label("), "{output}");
 }

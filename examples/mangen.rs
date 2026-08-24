@@ -26,17 +26,18 @@ typst\-doc man/mean_ci.Rd
 .PP
 Convert a Python module, rendering parameters as a term list:
 .EX
-typst\-doc stats.py \-\-params terms \-o stats.typ
+typst\-doc stats.py \-\-params terms > stats.typ
 .EE
 .PP
-Convert a whole R package's help directory into one manual:
+Convert a whole R package's help directory into one manual on standard output:
 .EX
-typst\-doc man/ \-o reference.typ
+typst\-doc man/ > reference.typ
 .EE
 .PP
-Split a package that documents many functions into one file per topic:
+Write a package that documents many functions into a directory, one file per
+topic plus an index:
 .EX
-typst\-doc src/lib.typ \-\-split \-o reference/
+typst\-doc src/lib.typ \-o reference/
 .EE
 .SH SEE ALSO
 .BR typst (1),

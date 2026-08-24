@@ -22,4 +22,4 @@ pub mod typ;
 pub mod typst;
 
 pub use ir::Topic;
-pub use typst::{Options, ParamsFormat, topic_to_typst};
+pub use typst::{Entry, Options, ParamsFormat, topic_to_typst};

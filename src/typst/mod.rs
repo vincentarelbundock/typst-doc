@@ -22,26 +22,35 @@ pub enum ParamsFormat {
 #[derive(Debug, Clone, Default)]
 pub struct Options {
     pub params_format: ParamsFormat,
-    /// Heading level the topic title is rendered at.
-    pub base_level: u8,
-    /// Names of every topic rendered in the same run. A topic link whose
-    /// target is in this set becomes a real link to that heading's label;
-    /// any other target degrades to plain code, since a link to a label the
-    /// document never defines is a Typst compile error, not just a dead end.
-    pub known_topics: std::collections::HashSet<String>,
+    /// Every topic name in the run that addresses exactly one heading, mapped
+    /// to the label that heading carries. A topic link whose target is missing
+    /// here — never converted, or shared by two topics — degrades to plain
+    /// code, since a link to a label the document never defines, or defines
+    /// twice, is a Typst compile error rather than just a dead end.
+    pub labels: std::collections::HashMap<String, String>,
 }
 
-impl Options {
-    fn level(&self, relative: u8) -> u8 {
-        self.base_level
-            .max(1)
-            .saturating_add(relative.saturating_sub(1))
-    }
+/// What a topic cannot know about itself, because it depends on the other
+/// topics in the same run.
+///
+/// Both fields answer one question — which of the same-named topics is this? —
+/// for the two audiences that ask it: [`label`](Entry::label) for Typst, which
+/// resolves references, and [`source`](Entry::source) for the reader, who would
+/// otherwise face two entries with identical names and signatures.
+#[derive(Debug, Clone, Copy, Default)]
+pub struct Entry<'a> {
+    /// The label the topic's heading carries. Defaults to the topic's name,
+    /// which is the right answer whenever that name is unique in the run.
+    pub label: Option<&'a str>,
+    /// The file the topic was read from, shown under its signature. Set only
+    /// when another topic shares the name, so an unambiguous entry carries no
+    /// provenance noise.
+    pub source: Option<&'a str>,
 }
 
 /// Render a topic as a standalone Typst document body.
-pub fn topic_to_typst(topic: &Topic, options: &Options) -> String {
-    let mut writer = Writer::new(options);
+pub fn topic_to_typst(topic: &Topic, entry: &Entry, options: &Options) -> String {
+    let mut writer = Writer::new(entry, options);
     writer.write_topic(topic);
     let body = writer.finish();
 
@@ -60,15 +69,17 @@ struct Writer<'a> {
     /// The first character of the inline that follows the one being written,
     /// which decides whether emphasis can use markers or needs a call.
     next: Option<char>,
+    entry: &'a Entry<'a>,
     options: &'a Options,
 }
 
 impl<'a> Writer<'a> {
-    fn new(options: &'a Options) -> Self {
+    fn new(entry: &'a Entry<'a>, options: &'a Options) -> Self {
         Self {
             out: String::new(),
             at_line_start: true,
             next: None,
+            entry,
             options,
         }
     }
@@ -84,10 +95,23 @@ impl<'a> Writer<'a> {
     // -- topic ------------------------------------------------------------
 
     fn write_topic(&mut self, topic: &Topic) {
-        self.write_heading(self.options.level(1), &topic.title, Some(&topic.name));
+        let label = self.entry.label.unwrap_or(&topic.name);
+        self.write_heading(1, &topic.title, Some(label));
 
         if let Some(signature) = &topic.signature {
             self.write_code_block(topic.lang.as_deref(), signature);
+        }
+
+        // Two topics of the same name render the same name and signature, so
+        // the file each came from is the only thing telling them apart.
+        if let Some(source) = self.entry.source {
+            self.ensure_blank_line();
+            self.write_inlines(&[
+                Inline::Emph(vec![Inline::text("Defined in")]),
+                Inline::text(" "),
+                Inline::Code(source.to_owned()),
+            ]);
+            self.newline();
         }
 
         self.write_section(topic, 2, "Description", &topic.description);
@@ -133,12 +157,12 @@ impl<'a> Writer<'a> {
 
     fn write_custom_section(&mut self, section: &Section) {
         self.ensure_blank_line();
-        self.write_heading(self.options.level(2), &section.title, None);
+        self.write_heading(2, &section.title, None);
         self.write_blocks(&section.body);
     }
 
     fn write_labelled_heading(&mut self, level: u8, title: &str) {
-        self.write_heading(self.options.level(level), &[Inline::text(title)], None);
+        self.write_heading(level, &[Inline::text(title)], None);
     }
 
     fn write_heading(&mut self, level: u8, content: &[Inline], label: Option<&str>) {
@@ -239,7 +263,7 @@ impl<'a> Writer<'a> {
                 self.newline();
             }
             Block::Heading { level, content } => {
-                self.write_heading(self.options.level(level.saturating_add(1)), content, None);
+                self.write_heading(level.saturating_add(1), content, None);
             }
             Block::Code { lang, value } => self.write_code_block(lang.as_deref(), value),
             Block::List { ordered, items } => self.write_list(*ordered, items),
@@ -508,16 +532,19 @@ impl<'a> Writer<'a> {
                     }
                     // `@name` would be shorter, but referencing an unnumbered
                     // heading is a Typst error; a `#link` to the label is not.
-                    None if is_label_safe(topic) && self.options.known_topics.contains(topic) => {
-                        self.out
-                            .push_str(&format!("#link(label({}))[", typst_string(topic)));
-                        self.at_line_start = false;
-                        self.write_inline(&Inline::Code(topic.clone()));
-                        self.out.push(']');
-                        return;
-                    }
+                    // The label is looked up rather than assumed to be the
+                    // name, since a name two topics share addresses neither.
                     None => {
-                        self.write_inline(&Inline::Code(topic.clone()));
+                        match self.options.labels.get(topic).filter(|l| is_label_safe(l)) {
+                            Some(label) => {
+                                self.out
+                                    .push_str(&format!("#link(label({}))[", typst_string(label)));
+                                self.at_line_start = false;
+                                self.write_inline(&Inline::Code(topic.clone()));
+                                self.out.push(']');
+                            }
+                            None => self.write_inline(&Inline::Code(topic.clone())),
+                        }
                         return;
                     }
                 }
@@ -540,7 +567,7 @@ impl<'a> Writer<'a> {
     /// Render blocks to a standalone string, isolated from the current
     /// output buffer's line state.
     fn render_isolated(&self, blocks: &[Block]) -> String {
-        let mut writer = Writer::new(self.options);
+        let mut writer = Writer::new(self.entry, self.options);
         writer.write_blocks(blocks);
         writer.out.trim().to_owned()
     }
@@ -548,7 +575,7 @@ impl<'a> Writer<'a> {
     /// Render inlines to a standalone string. Inline siblings must stay on
     /// one line, so this never inserts block separation.
     fn render_isolated_inline(&self, inlines: &[Inline]) -> String {
-        let mut writer = Writer::new(self.options);
+        let mut writer = Writer::new(self.entry, self.options);
         // Every caller drops the result into a fresh `[..]`, where markup
         // starts anew: a leading `/`, `-`, or `=` there is a list marker, not
         // text, exactly as at the start of a line.

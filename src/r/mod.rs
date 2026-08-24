@@ -245,10 +245,12 @@ fn as_block(node: &RdNode) -> Option<Block> {
             if parts.len() >= 2 {
                 // Rendered as a heading followed by its body; the body blocks
                 // are hoisted, since the IR has no nested-section block.
-                Some(Block::Heading {
+                let mut out = vec![Block::Heading {
                     level: 2,
                     content: inlines(&parts[0]),
-                })
+                }];
+                out.extend(blocks(&parts[1]));
+                Some(Block::Group(out))
             } else {
                 None
             }

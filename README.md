@@ -5,19 +5,19 @@ Render R, Python, Typst, and Unix manual-page documentation as
 
 ```console
 $ typst-doc man/mean_ci.Rd
-$ typst-doc stats.py --params terms -o stats.typ
-$ typst-doc src/slides.typ -o manual.typ
+$ typst-doc stats.py --params terms > stats.typ
+$ typst-doc src/slides.typ > manual.typ
 $ typst-doc /usr/share/man/man1/ls.1
-$ typst-doc man/ -o reference.typ
+$ typst-doc man/ -o reference/
 ```
 
 Each input is a file or a directory; every documented entity becomes one
-manual entry, and all entries are joined into a single document in the order
-given (a directory contributes its recognised files in name order). With
-`--split`, each entry is instead written to its own `<topic>.typ` file in the
-`--output` directory — useful when one source file documents many functions —
-along with an `index.typ` whose table of contents `#include`s every entry, so
-`typst compile index.typ` builds the whole reference manual.
+manual entry (a directory contributes its recognised files in name order).
+Where the entries go is decided by the output target. With `--output`, each
+one is written to its own `<topic>.typ` file in that directory, along with an
+`index.typ` whose table of contents `#include`s every entry, so `typst compile
+index.typ` builds the whole reference manual. Without it, the entries are
+joined into a single document on standard output, in the order given.
 
 Cross-references resolve within a run: a topic link whose target is converted
 in the same invocation becomes a real link to that entry's heading, and any

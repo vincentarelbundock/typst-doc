@@ -75,16 +75,16 @@ directory contributes its recognised files in name order.
 typst-doc man/mean_ci.Rd
 
 # A Python module, with parameters as a term list instead of a table
-typst-doc stats.py --params terms -o stats.typ
+typst-doc stats.py --params terms > stats.typ
 
-# A whole help directory, joined into one manual
-typst-doc man/ -o reference.typ
+# A whole help directory, joined into one document on stdout
+typst-doc man/ > reference.typ
 
-# One file per topic, plus an index.typ that includes them all
-typst-doc R/ --split -o reference/
+# Or into a directory: one file per topic, plus an index.typ including them all
+typst-doc R/ -o reference/
 
 # Then render it
-typst compile reference.typ
+typst compile reference/index.typ
 ```
 
 Cross-references resolve within a run: a link whose target is converted in the
@@ -97,7 +97,7 @@ Internal topics are skipped unless `--include-internal` is passed.
 `.Rd` files, the format `R CMD check` validates and `?help` displays.
 
 ```sh
-typst-doc man/ -o reference.typ
+typst-doc man/ -o reference/
 ```
 
 Rd is a typed markup language, so the reader has the most to work with:
@@ -116,7 +116,7 @@ Modules and packages, with
 #link("https://numpydoc.readthedocs.io")[numpydoc]-style docstrings.
 
 ```sh
-typst-doc mypkg/ --params terms -o reference.typ
+typst-doc mypkg/ --params terms -o reference/
 ```
 
 A docstring is the signal that an entity is documentation-worthy: undocumented
@@ -130,7 +130,7 @@ Packages documented with `///` comments, in the convention established by the
 #link("https://typst.app/universe/package/tidy")[tidy] package.
 
 ```sh
-typst-doc src/lib.typ --split -o reference/
+typst-doc src/lib.typ -o reference/
 ```
 
 ````typ

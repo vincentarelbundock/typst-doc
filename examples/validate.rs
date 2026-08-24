@@ -2,7 +2,7 @@
 //! the generated Typst parses. Usage: `cargo run --example validate -- <dir>`.
 
 use typst_doc::typst::Options;
-use typst_doc::{man, python, r, topic_to_typst, typ};
+use typst_doc::{Entry, man, python, r, topic_to_typst, typ};
 
 fn main() {
     let dir = std::env::args().nth(1).expect("usage: validate <dir>");
@@ -36,7 +36,7 @@ fn main() {
         };
 
         for topic in &topics {
-            let output = topic_to_typst(topic, &Options::default());
+            let output = topic_to_typst(topic, &Entry::default(), &Options::default());
             let (errors, _) = typst_syntax::parse(&output).errors_and_warnings();
             if errors.is_empty() {
                 ok += 1;

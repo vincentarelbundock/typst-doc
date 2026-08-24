@@ -89,8 +89,8 @@ PORT ?= 8000
 man:  ## Regenerate man/typst-doc.1 from the CLI definition
 	cargo run -q --example mangen
 
-# The reference page is the man page rendered by typst-doc itself, one heading
-# level down so it nests under the page title.
+# The reference page is the man page rendered by typst-doc itself, offset one
+# heading level down so it nests under the page title.
 reference: man  ## Regenerate docs-src/reference.typ from man/typst-doc.1
 	@{ \
 	    printf '#import "/.calepin/calepin.typ" as calepin\n#calepin.setup(eval: false)\n\n'; \
@@ -98,8 +98,9 @@ reference: man  ## Regenerate docs-src/reference.typ from man/typst-doc.1
 	    printf '#metadata((\n  summary: "The typst-doc manual page, rendered as Typst by typst-doc itself.",\n)) <website-metadata>\n\n'; \
 	    printf '#title()\n\n'; \
 	    printf 'Generated from `man/typst-doc.1` by `typst-doc` itself:\n'; \
-	    printf '`typst-doc man/typst-doc.1 --base-level 2 -o docs-src/reference.typ`.\n\n'; \
-	    cargo run -q -- man/typst-doc.1 --base-level 2; \
+	    printf '`typst-doc man/typst-doc.1 > docs-src/reference.typ`.\n\n'; \
+	    printf '#set heading(offset: 1)\n\n'; \
+	    cargo run -q -- man/typst-doc.1; \
 	} > $(DOCS_SRC)/reference.typ
 
 website: reference  ## Build the website from docs-src/ into docs/

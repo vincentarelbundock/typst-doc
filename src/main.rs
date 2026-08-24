@@ -4,15 +4,16 @@ use anyhow::{Context, Result, bail};
 use clap::Parser;
 
 use typst_doc::cli::Cli;
-use typst_doc::typst::Options;
 use typst_doc::typst::escape::typst_string;
+use typst_doc::typst::{Entry, Options};
 use typst_doc::{Topic, man, python, r, topic_to_typst, typ};
 
 fn main() -> Result<()> {
     let cli = Cli::parse();
 
-    // Each topic keeps its source path: `--split` falls back to it when two
-    // topics share a name.
+    // Each topic keeps its source path: it is what tells two same-named
+    // topics apart, in their labels, their file names, and the entries
+    // themselves.
     let mut topics: Vec<(PathBuf, Topic)> = Vec::new();
     for input in &cli.inputs {
         if input.is_dir() {
@@ -46,54 +47,75 @@ fn main() -> Result<()> {
         bail!("no documented entities found");
     }
 
+    let addresses = Addresses::of(&topics);
+
     let options = Options {
         params_format: cli.params.into(),
-        base_level: cli.base_level,
-        known_topics: topics.iter().map(|(_, topic)| topic.name.clone()).collect(),
+        // A shared name addresses two headings, so it addresses neither.
+        labels: topics
+            .iter()
+            .zip(&addresses.slugs)
+            .filter(|((_, topic), _)| !addresses.ambiguous.contains(&topic.name))
+            .map(|((_, topic), slug)| (topic.name.clone(), slug.clone()))
+            .collect(),
     };
+
+    let sources: Vec<String> = topics
+        .iter()
+        .map(|(path, _)| path.display().to_string())
+        .collect();
 
     let rendered: Vec<String> = topics
         .iter()
-        .map(|(_, topic)| topic_to_typst(topic, &options))
+        .zip(&addresses.slugs)
+        .zip(&sources)
+        .map(|(((_, topic), slug), source)| {
+            let entry = Entry {
+                label: Some(slug.as_str()),
+                source: addresses
+                    .ambiguous
+                    .contains(&topic.name)
+                    .then_some(source.as_str()),
+            };
+            topic_to_typst(topic, &entry, &options)
+        })
         .collect();
 
     for (topic, target) in dangling_refs(&topics, &rendered) {
-        eprintln!("warning: unresolved reference @{target} (in topic `{topic}`)");
+        if addresses.ambiguous.contains(&target) {
+            eprintln!("warning: ambiguous reference @{target} (in topic `{topic}`)");
+        } else {
+            eprintln!("warning: unresolved reference @{target} (in topic `{topic}`)");
+        }
     }
 
-    if cli.split {
-        let dir = cli.output.as_ref().expect("clap enforces --output");
-        std::fs::create_dir_all(dir).with_context(|| format!("creating {}", dir.display()))?;
-        let names = split_file_names(&topics);
-        for (document, file_name) in rendered.iter().zip(&names) {
-            let file = dir.join(file_name);
-            std::fs::write(&file, document)
-                .with_context(|| format!("writing {}", file.display()))?;
-        }
-        write_index(dir, &names, &options)?;
+    let Some(dir) = &cli.output else {
+        print!("{}", rendered.join("\n"));
         return Ok(());
-    }
+    };
 
-    let document = rendered.join("\n");
-
-    match &cli.output {
-        Some(path) => {
-            std::fs::write(path, document).with_context(|| format!("writing {}", path.display()))?
-        }
-        None => print!("{document}"),
+    std::fs::create_dir_all(dir).with_context(|| format!("creating {}", dir.display()))?;
+    let names: Vec<String> = addresses
+        .slugs
+        .iter()
+        .map(|slug| format!("{slug}.typ"))
+        .collect();
+    for (document, file_name) in rendered.iter().zip(&names) {
+        let file = dir.join(file_name);
+        std::fs::write(&file, document).with_context(|| format!("writing {}", file.display()))?;
     }
-    Ok(())
+    write_index(dir, &names)
 }
 
 /// The entry point of a split manual: a table of contents followed by an
 /// `#include` of every topic file, so one `typst compile index.typ` builds
 /// the whole reference and cross-topic references resolve.
-fn write_index(dir: &Path, names: &[String], options: &Options) -> Result<()> {
+fn write_index(dir: &Path, names: &[String]) -> Result<()> {
     if names.iter().any(|name| name == "index.typ") {
         eprintln!("warning: a topic file is named index.typ; not writing an index");
         return Ok(());
     }
-    let mut index = format!("#outline(depth: {})\n", options.base_level.max(1));
+    let mut index = String::from("#outline(depth: 1)\n");
     for name in names {
         index.push_str(&format!("\n#include {}\n", typst_string(name)));
     }
@@ -142,41 +164,78 @@ fn scan_refs(
     }
 }
 
-/// One output file name per topic for `--split`, index-aligned with `topics`.
+/// How each topic is addressed: by Typst, as a heading label, and on disk, as
+/// a file name.
 ///
-/// The usual name is `<topic>.typ`, but topics sharing a name would silently
-/// overwrite each other. A colliding group instead takes the shortest suffix
-/// of each source path that tells its members apart — mosaic's two `image`
-/// functions become `component-image.typ` and `layout-image.typ` — and a
-/// warning reports the choice. The suffix disambiguates the file on disk; it
-/// makes no claim about the function's qualified name.
-fn split_file_names(topics: &[(PathBuf, Topic)]) -> Vec<String> {
+/// One pass serves both, so a topic's label and its file always agree, and
+/// every reader is disambiguated the same way.
+struct Addresses {
+    /// One slug per topic, index-aligned with `topics`: the label its heading
+    /// carries, and the stem of the file it is written to.
+    slugs: Vec<String>,
+    /// Names that more than one topic answers to. Such a name addresses no
+    /// single heading, so references to it cannot resolve, and every entry
+    /// carrying one shows the file it came from instead.
+    ambiguous: std::collections::HashSet<String>,
+}
+
+impl Addresses {
+    /// The usual slug is the topic's name, but topics sharing a name would
+    /// address — and overwrite — each other. A colliding group instead takes
+    /// the shortest suffix of each source path that tells its members apart —
+    /// mosaic's two `image` functions become `component-image` and
+    /// `layout-image` — and a warning reports the choice. The suffix
+    /// disambiguates the topic within this run; it makes no claim about the
+    /// function's qualified name, which the source layout does not determine.
+    fn of(topics: &[(PathBuf, Topic)]) -> Self {
+        Self {
+            slugs: topic_slugs(topics),
+            ambiguous: duplicated_names(topics),
+        }
+    }
+}
+
+/// Names shared by two or more topics in the run.
+fn duplicated_names(topics: &[(PathBuf, Topic)]) -> std::collections::HashSet<String> {
+    let mut seen = std::collections::HashSet::new();
+    let mut twice = std::collections::HashSet::new();
+    for (_, topic) in topics {
+        if !seen.insert(topic.name.as_str()) {
+            twice.insert(topic.name.clone());
+        }
+    }
+    twice
+}
+
+/// One slug per topic, index-aligned with `topics`.
+fn topic_slugs(topics: &[(PathBuf, Topic)]) -> Vec<String> {
     let mut groups: std::collections::BTreeMap<&str, Vec<usize>> =
         std::collections::BTreeMap::new();
     for (index, (_, topic)) in topics.iter().enumerate() {
         groups.entry(topic.name.as_str()).or_default().push(index);
     }
 
-    let mut names = vec![String::new(); topics.len()];
+    let mut slugs = vec![String::new(); topics.len()];
     for (name, indices) in groups {
         if let [index] = indices[..] {
-            names[index] = format!("{}.typ", sanitize(name));
+            slugs[index] = sanitize(name);
             continue;
         }
-        let files: Vec<String> = disambiguate(&indices, topics)
-            .into_iter()
-            .map(|stem| format!("{stem}.typ"))
-            .collect();
+        let chosen = disambiguate(&indices, topics);
         eprintln!(
-            "warning: {} topics named `{name}`; writing {}",
+            "warning: {} topics named `{name}`; writing {} — references to `{name}` will not resolve",
             indices.len(),
-            files.join(", ")
+            chosen
+                .iter()
+                .map(|slug| format!("{slug}.typ"))
+                .collect::<Vec<_>>()
+                .join(", ")
         );
-        for (&index, file) in indices.iter().zip(files) {
-            names[index] = file;
+        for (&index, slug) in indices.iter().zip(chosen) {
+            slugs[index] = slug;
         }
     }
-    names
+    slugs
 }
 
 /// File stems for one group of same-named topics.
@@ -311,32 +370,32 @@ mod tests {
     }
 
     #[test]
-    fn split_names_are_plain_when_unique() {
+    fn slugs_are_plain_names_when_unique() {
         let topics = vec![entry("src/a.typ", "on"), entry("src/a.typ", "reveal")];
-        assert_eq!(split_file_names(&topics), vec!["on.typ", "reveal.typ"]);
+        assert_eq!(topic_slugs(&topics), vec!["on", "reveal"]);
     }
 
     #[test]
-    fn split_collisions_take_the_shortest_distinguishing_path_suffix() {
+    fn colliding_slugs_take_the_shortest_distinguishing_path_suffix() {
         // Same stem, so the parent directory is what tells them apart.
         let topics = vec![
             entry("src/component/image.typ", "image"),
             entry("src/layout/image.typ", "image"),
         ];
         assert_eq!(
-            split_file_names(&topics),
-            vec!["component-image.typ", "layout-image.typ"]
+            topic_slugs(&topics),
+            vec!["component-image", "layout-image"]
         );
 
         // Different stems already suffice, and the topic name is appended.
         let topics = vec![entry("src/a.typ", "on"), entry("src/b.typ", "on")];
-        assert_eq!(split_file_names(&topics), vec!["a-on.typ", "b-on.typ"]);
+        assert_eq!(topic_slugs(&topics), vec!["a-on", "b-on"]);
     }
 
     #[test]
-    fn split_collisions_within_one_file_fall_back_to_a_counter() {
+    fn collisions_within_one_file_fall_back_to_a_counter() {
         let topics = vec![entry("man/x.Rd", "x"), entry("man/x.Rd", "x")];
-        assert_eq!(split_file_names(&topics), vec!["x-1.typ", "x-2.typ"]);
+        assert_eq!(topic_slugs(&topics), vec!["x-1", "x-2"]);
     }
 
     #[test]
