@@ -16,23 +16,33 @@ use crate::ir::{Block, Example, Inline, Param, Section, Topic};
 
 /// Parse Python source and convert every documented entity to a [`Topic`].
 ///
-/// Module, functions, and classes each become one topic, in source order.
+/// Module, functions, and classes each become one topic, in source order,
+/// named under the file's own stem. A file that belongs to a package is
+/// better named by [`parse_module`], since only the driver can see the
+/// directories above it.
 pub fn parse(source: &str, path: &str) -> Result<Vec<Topic>, ParseError> {
-    let suite = ast::Suite::parse(source, path)?;
-    let mut topics = Vec::new();
-
-    let module_name = path
+    let stem = path
         .rsplit('/')
         .next()
         .unwrap_or(path)
-        .trim_end_matches(".py")
-        .to_owned();
+        .trim_end_matches(".py");
+    parse_module(source, path, stem)
+}
+
+/// Parse Python source, naming every entity under `module`.
+///
+/// The module name prefixes every topic, so `fit` in `mypkg/core.py` is
+/// `mypkg.core.fit` — how a reader imports it, and what tells it apart from
+/// the `fit` in a sibling module.
+pub fn parse_module(source: &str, path: &str, module: &str) -> Result<Vec<Topic>, ParseError> {
+    let suite = ast::Suite::parse(source, path)?;
+    let mut topics = Vec::new();
 
     if let Some(doc) = leading_docstring(&suite) {
-        topics.push(from_docstring(&module_name, None, &doc));
+        topics.push(from_docstring(module, None, &doc));
     }
 
-    collect(&suite, &module_name, source, &mut topics);
+    collect(&suite, module, source, &mut topics);
     Ok(topics)
 }
 

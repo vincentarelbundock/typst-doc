@@ -124,6 +124,14 @@ definitions are not listed. Parameters, Returns, See Also, and Examples route
 to the matching sections. Names starting with `_` are private, though dunders
 like `__init__` stay public. Long signatures are broken across lines.
 
+A package is read the way Python imports it. Subpackages are descended into,
+and every topic is named under the packages above it, so `fit` in
+`mypkg/core.py` is `mypkg.core.fit`. The `__init__.py` of a package documents
+the package itself, under its own name. How far the dotted name reaches is
+decided by the highest `__init__.py` above the file: a directory below it
+belongs to the path even without one of its own, as PEP 420 namespace packages
+do, and a loose module in a plain directory is named by its stem alone.
+
 = Typst
 
 Packages documented with `///` comments, in the convention established by the

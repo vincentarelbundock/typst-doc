@@ -12,7 +12,9 @@ $ typst-doc man/ -o reference/
 ```
 
 Each input is a file or a directory; every documented entity becomes one
-manual entry (a directory contributes its recognised files in name order).
+manual entry (a directory contributes every recognised file beneath it,
+descending into subdirectories, each in name order; dot-prefixed entries such
+as `.venv` are skipped).
 Where the entries go is decided by the output target. With `--output`, each
 one is written to its own `<topic>.typ` file in that directory, along with an
 `index.typ` whose table of contents `#include`s every entry, so `typst compile

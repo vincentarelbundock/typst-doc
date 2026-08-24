@@ -17,14 +17,9 @@ fn main() -> Result<()> {
     let mut topics: Vec<(PathBuf, Topic)> = Vec::new();
     for input in &cli.inputs {
         if input.is_dir() {
-            // Unrecognised files in a directory are simply not documentation;
-            // a file named explicitly, by contrast, errors below.
-            let mut files: Vec<PathBuf> = std::fs::read_dir(input)
-                .with_context(|| format!("reading {}", input.display()))?
-                .filter_map(|entry| entry.ok().map(|entry| entry.path()))
-                .filter(|path| recognised(path))
-                .collect();
-            files.sort();
+            let mut files = Vec::new();
+            let mut visited = std::collections::HashSet::new();
+            recognised_files(input, &mut files, &mut visited)?;
             for file in files {
                 let parsed = parse_file(&file, Lenient::Yes)?;
                 topics.extend(parsed.into_iter().map(|topic| (file.clone(), topic)));
@@ -309,7 +304,7 @@ fn parse_file(path: &Path, lenient: Lenient) -> Result<Vec<Topic>> {
         Some("Rd") | Some("rd") => Ok(vec![
             r::parse(&source).with_context(|| format!("parsing {}", path.display()))?,
         ]),
-        Some("py") => python::parse(&source, &path.to_string_lossy())
+        Some("py") => python::parse_module(&source, &path.to_string_lossy(), &python_module(path))
             .map_err(|error| anyhow::anyhow!("{error}"))
             .with_context(|| format!("parsing {}", path.display())),
         Some("typ") => Ok(typ::parse(&source)),
@@ -332,6 +327,106 @@ fn parse_file(path: &Path, lenient: Lenient) -> Result<Vec<Topic>> {
             "unrecognised input type: {} (expected .Rd, .py, .typ, or a man page section such as .1)",
             path.display()
         ),
+    }
+}
+
+/// Every recognised file under `dir`, depth first, each directory's entries in
+/// name order.
+///
+/// Documentation nests: a Python package contains subpackages, a Typst package
+/// keeps its modules under `src/`. Only R's flat `man/` needs no descent. A
+/// subdirectory skipped without a word is indistinguishable from one that held
+/// nothing, so the walk descends rather than reporting success over a manual
+/// missing half its entries. Unrecognised files are still simply not
+/// documentation; a file named explicitly, by contrast, errors.
+///
+/// Entries whose name begins with `.` are not source. That convention, not a
+/// list of directory names to grow forever, is what keeps `.venv`, `.git`, and
+/// `.tox` out of a manual. `visited` holds the directories already walked, by
+/// canonical path, so a symlink cycle terminates.
+fn recognised_files(
+    dir: &Path,
+    out: &mut Vec<PathBuf>,
+    visited: &mut std::collections::HashSet<PathBuf>,
+) -> Result<()> {
+    let canonical = std::fs::canonicalize(dir).unwrap_or_else(|_| dir.to_path_buf());
+    if !visited.insert(canonical) {
+        return Ok(());
+    }
+
+    let mut entries: Vec<PathBuf> = std::fs::read_dir(dir)
+        .with_context(|| format!("reading {}", dir.display()))?
+        .filter_map(|entry| entry.ok().map(|entry| entry.path()))
+        .filter(|path| !hidden(path))
+        .collect();
+    entries.sort();
+
+    for entry in entries {
+        if entry.is_dir() {
+            recognised_files(&entry, out, visited)?;
+        } else if recognised(&entry) {
+            out.push(entry);
+        }
+    }
+    Ok(())
+}
+
+/// Whether a path's own name marks it as not source, by the dot convention.
+fn hidden(path: &Path) -> bool {
+    path.file_name()
+        .and_then(|name| name.to_str())
+        .is_some_and(|name| name.starts_with('.'))
+}
+
+/// The dotted module name of a Python file, from the packages above it.
+///
+/// Python's own rule: a directory is part of the import path exactly as far up
+/// as `__init__.py` reaches, so `mypkg/core.py` is `mypkg.core` and a loose
+/// `stats.py` is just `stats`. Unlike Typst, where a module's public path is
+/// whatever `lib.typ` re-exports and the layout claims nothing, here the layout
+/// really is the import path, so it is worth reading.
+///
+/// `__init__.py` documents the package, not a module inside it, and is named
+/// for its directory.
+///
+/// The highest `__init__.py` found decides where the package starts, and every
+/// directory below it belongs to the path whether it carries one or not — a
+/// PEP 420 namespace subpackage has none and is still imported through its
+/// parent. Directories above that highest one are somebody's source tree, not
+/// part of any import path, so a loose `src/stats.py` stays `stats`.
+fn python_module(path: &Path) -> String {
+    let stem = path
+        .file_stem()
+        .map(|stem| stem.to_string_lossy().into_owned())
+        .unwrap_or_default();
+
+    let mut ancestors = Vec::new();
+    let mut package_depth = None;
+    let mut directory = path.parent();
+    while let Some(current) = directory {
+        let Some(name) = current.file_name() else {
+            break;
+        };
+        if current.join("__init__.py").is_file() {
+            package_depth = Some(ancestors.len());
+        }
+        ancestors.push(name.to_string_lossy().into_owned());
+        directory = current.parent();
+    }
+
+    let mut packages = match package_depth {
+        Some(depth) => ancestors[..=depth].to_vec(),
+        None => Vec::new(),
+    };
+    packages.reverse();
+
+    if stem != "__init__" {
+        packages.push(stem.clone());
+    }
+    if packages.is_empty() {
+        stem
+    } else {
+        packages.join(".")
     }
 }
 
@@ -409,5 +504,72 @@ mod tests {
             dangling_refs(&topics, &rendered),
             vec![("a".to_owned(), "missing".to_owned())]
         );
+    }
+
+    /// A scratch tree, so the `__init__.py` probing has a filesystem to read.
+    fn tree(files: &[&str]) -> PathBuf {
+        let root = std::env::temp_dir().join(format!(
+            "typst-doc-test-{}",
+            files.join("+").replace(['/', '.'], "-")
+        ));
+        let _ = std::fs::remove_dir_all(&root);
+        for file in files {
+            let path = root.join(file);
+            std::fs::create_dir_all(path.parent().expect("a file has a parent"))
+                .expect("creating the tree");
+            std::fs::write(&path, "").expect("writing a file");
+        }
+        root
+    }
+
+    #[test]
+    fn a_module_is_named_under_the_packages_above_it() {
+        let root = tree(&["mypkg/__init__.py", "mypkg/core.py"]);
+        assert_eq!(python_module(&root.join("mypkg/core.py")), "mypkg.core");
+        // `__init__.py` documents the package itself.
+        assert_eq!(python_module(&root.join("mypkg/__init__.py")), "mypkg");
+    }
+
+    #[test]
+    fn a_namespace_subpackage_still_belongs_to_its_parent() {
+        let root = tree(&["mypkg/__init__.py", "mypkg/sub/deep.py"]);
+        assert_eq!(
+            python_module(&root.join("mypkg/sub/deep.py")),
+            "mypkg.sub.deep"
+        );
+    }
+
+    #[test]
+    fn a_loose_module_is_named_by_its_stem_alone() {
+        let root = tree(&["src/stats.py"]);
+        assert_eq!(python_module(&root.join("src/stats.py")), "stats");
+    }
+
+    #[test]
+    fn the_walk_descends_in_name_order_and_skips_dot_directories() {
+        let root = tree(&[
+            "pkg/b.py",
+            "pkg/a.py",
+            "pkg/sub/c.py",
+            "pkg/.venv/hidden.py",
+            "pkg/notes.txt",
+        ]);
+        let mut found = Vec::new();
+        recognised_files(
+            &root.join("pkg"),
+            &mut found,
+            &mut std::collections::HashSet::new(),
+        )
+        .expect("walking the tree");
+        let names: Vec<String> = found
+            .iter()
+            .map(|path| {
+                path.strip_prefix(&root)
+                    .expect("under the root")
+                    .to_string_lossy()
+                    .into_owned()
+            })
+            .collect();
+        assert_eq!(names, vec!["pkg/a.py", "pkg/b.py", "pkg/sub/c.py"]);
     }
 }
