@@ -49,8 +49,8 @@ single entry.
 
 Four input languages are recognised, by extension: R documentation (.Rd), \
 Python modules and packages (.py), Typst source documented with /// comments \
-(.typ), and Unix manual pages written in the man(7) macro package (a section \
-number such as .1 or .3, or .man).
+(.typ), and Unix manual pages in either macro package, man(7) or mdoc(7) \
+(a section number such as .1 or .3, or .man).
 
 Each topic title is a level-1 heading. To nest the output under a title of \
 your own, set the offset where you include it: `#set heading(offset: 1)`.

@@ -22,6 +22,8 @@
 //!   to be — text, `.B`, or `.BR`. The tag is therefore captured by a pending
 //!   flag rather than read from the macro's own arguments.
 
+mod mdoc;
+
 use crate::ir::{Block, Example, Inline, LinkDest, Param, Section, Term, Topic, to_plain_text};
 
 /// Why a file could not be read as a man page.
@@ -36,10 +38,6 @@ pub enum ManError {
     /// one page.
     #[error("a redirect to {target}, not a page of its own")]
     Redirect { target: String },
-    /// BSD's semantic macro package, which is a different language: `.Dd`,
-    /// `.Sh`, `.Nm` rather than `.TH`, `.SH`, `.B`.
-    #[error("an mdoc(7) page; this reader accepts man(7)")]
-    Mdoc,
 }
 
 /// Parse man(7) source and convert it to a single [`Topic`].
@@ -50,11 +48,14 @@ pub fn parse(source: &str) -> Result<Topic, ManError> {
     if let Some(target) = redirect(source) {
         return Err(ManError::Redirect { target });
     }
-    let document = Parser::new().run(source);
-    match assemble(document) {
-        Err(ManError::NotAManPage) if is_mdoc(source) => Err(ManError::Mdoc),
-        other => other,
-    }
+    // mdoc is a different language, not a dialect: it gets its own reader,
+    // and the two meet again at `assemble`.
+    let document = if is_mdoc(source) {
+        mdoc::parse(source)
+    } else {
+        Parser::new().run(source)
+    };
+    assemble(document)
 }
 
 /// The target of a `.so` stub, if the file is one.

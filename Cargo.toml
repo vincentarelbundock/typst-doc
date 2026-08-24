@@ -7,6 +7,12 @@ license = "MIT"
 description = "Render R, Python, Typst, and man page documentation as Typst"
 readme = "README.md"
 keywords = ["r", "rd", "python", "man", "typst"]
+categories = ["command-line-utilities", "development-tools", "text-processing"]
+repository = "https://github.com/vincentarelbundock/typst-doc"
+homepage = "https://vincentarelbundock.github.io/typst-doc/"
+documentation = "https://vincentarelbundock.github.io/typst-doc/reference.html"
+# The built website and its sources are for the repository, not for the crate.
+exclude = ["docs/", "docs-src/", ".github/"]
 
 [dependencies]
 anyhow = "1"

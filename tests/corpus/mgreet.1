@@ -1,0 +1,53 @@
+.\" A synthetic mdoc(7) page, the counterpart of greet.1 for the BSD macros.
+.Dd August 23, 2026
+.Dt MGREET 1
+.Os
+.Sh NAME
+.Nm mgreet ,
+.Nm mhello
+.Nd greet somebody by name
+.Sh SYNOPSIS
+.Nm
+.Op Fl v
+.Op Fl n Ar times
+.Ar name ...
+.Sh DESCRIPTION
+The
+.Nm
+utility writes a greeting for each
+.Ar name
+to standard output.
+The options are as follows:
+.Bl -tag -width Ds
+.It Fl v
+Write the greeting to
+.Pa /dev/tty
+as well, and report the version.
+.It Fl n Ar times
+Repeat each greeting
+.Ar times
+times.
+.El
+.Pp
+An
+.Sm off
+.Oo user @ Oc host
+.Sm on
+operand greets a remote machine, on
+.Ux
+systems only.
+.Sh EXIT STATUS
+.Ex -std
+.Sh EXAMPLES
+Greet two people twice:
+.Bd -literal
+mgreet -n 2 ada grace
+.Ed
+.Sh SEE ALSO
+.Xr greet 1 ,
+.Xr write 1
+.Sh STANDARDS
+The
+.Fn greet name
+interface conforms to
+.St -p1003.1-2008 .

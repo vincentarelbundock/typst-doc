@@ -179,10 +179,15 @@ Three further judgements:
   cross-reference. Where the two agree apart from case, `NAME` wins.
 - **`ls(1)` in `SEE ALSO` is a cross-reference**, resolving to a link when
   that page is converted in the same run, exactly like an Rd `\link`.
-- **Two kinds of file in a manual directory are not pages**: `.so` stubs,
-  which redirect to another entry, and mdoc(7) pages, which are BSD's
-  separate macro package and not read here. Scanning a directory skips them
-  with a warning; naming one explicitly reports what it is.
+- **Both macro packages are read.** man(7) is presentational — `.B` bolds,
+  `.TP` indents — so its structure has to be inferred; mdoc(7), standard on
+  the BSDs and macOS, names what a thing *is* (`.Fl` a flag, `.Ar` an
+  argument, `.Xr` a cross-reference), which the reader takes at its word.
+  Either way the section titles route the content, so a page of either
+  dialect becomes the same kind of entry.
+- **A `.so` stub is not a page**: it redirects to another entry rather than
+  standing on its own. Scanning a directory skips one with a warning; naming
+  it explicitly reports what it is.
 
 The section number picks the fence language: 2 and 3 document C functions,
 everything else a command, so signatures and examples are highlighted as `c`

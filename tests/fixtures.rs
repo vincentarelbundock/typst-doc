@@ -1,5 +1,6 @@
 //! End-to-end tests: source in, Typst out, validated by Typst's own parser.
 
+use typst_doc::ir::{Block, to_plain_text};
 use typst_doc::typst::{Options, ParamsFormat};
 use typst_doc::{Entry, man, python, r, topic_to_typst, typ};
 
@@ -593,7 +594,7 @@ fn man_long_usage_lines_wrap_under_a_hanging_indent() {
 [\\fB\\-\\-base\\-level\\fR] [\\fB\\-\\-include\\-internal\\fR] \
 [\\fB\\-\\-split\\fR] <\\fIINPUTS\\fR>\n";
     let topic = man::parse(source).expect("man page parses");
-    let signature = topic.signature.expect("a synopsis");
+    let signature = topic.signature.clone().expect("a synopsis");
 
     assert!(
         signature.lines().count() > 1,
@@ -678,18 +679,14 @@ fn man_cross_references_resolve_within_the_run() {
     assert_valid_typst(&output);
 }
 
-/// A manual directory holds files that are not pages: `.so` stubs, and
-/// mdoc(7) pages written in the other macro package. Each is reported as
-/// what it is rather than as a parse failure.
+/// A manual directory holds files that are not pages: `.so` stubs redirect to
+/// another entry rather than standing on their own. Each is reported as what
+/// it is rather than as a parse failure.
 #[test]
 fn man_non_pages_are_named_not_guessed() {
     assert!(matches!(
         man::parse(".so man1/other.1\n"),
         Err(man::ManError::Redirect { .. })
-    ));
-    assert!(matches!(
-        man::parse(".Dd August 23, 2026\n.Dt SSH 1\n.Sh NAME\n"),
-        Err(man::ManError::Mdoc)
     ));
     assert!(matches!(
         man::parse("just some text\n"),
@@ -842,4 +839,74 @@ fn a_reference_resolves_in_the_referring_topics_scope_first() {
         "{output}"
     );
     assert_valid_typst(&output);
+}
+
+/// mdoc(7) is the other manual macro package: semantic where man(7) is
+/// presentational, and standard on the BSDs and macOS.
+#[test]
+fn mdoc_pages_read_as_manual_entries() {
+    let source = concat!(
+        ".Dd August 23, 2026\n.Dt MGREET 1\n.Os\n",
+        ".Sh NAME\n.Nm mgreet ,\n.Nm mhello\n.Nd greet somebody\n",
+        ".Sh SYNOPSIS\n.Nm\n.Op Fl n Ar times\n.Ar name\n",
+        ".Sh DESCRIPTION\nThe\n.Nm\nutility greets each\n.Ar name .\n",
+        ".Bl -tag -width Ds\n.It Fl n Ar times\nRepeat the greeting.\n.El\n",
+        ".Sh SEE ALSO\n.Xr write 1\n",
+    );
+    let topic = man::parse(source).expect("mdoc parses");
+
+    // The comma after `.Nm mgreet` separates names; it is not one.
+    assert_eq!(topic.name, "mgreet");
+    assert_eq!(topic.aliases, vec!["mhello"]);
+    assert_eq!(to_plain_text(&topic.title), "greet somebody");
+
+    // `.Op Fl n Ar times` nests three macros: an optional group holding a
+    // flag and its argument.
+    let signature = topic.signature.clone().expect("a synopsis");
+    assert!(signature.contains("[-n times]"), "{signature}");
+
+    // BSD pages document options inside DESCRIPTION rather than in a section
+    // of their own, so a `-tag` list stays where the page put it, as a term
+    // list, rather than being hoisted into the entry's parameters.
+    assert!(topic.params.is_empty());
+    let options = topic.description.iter().any(|block| match block {
+        Block::Terms(terms) => terms
+            .iter()
+            .any(|term| to_plain_text(&term.term).contains("-n")),
+        _ => false,
+    });
+    assert!(options, "{:?}", topic.description);
+
+    let output = topic_to_typst(&topic, &Entry::default(), &Options::default());
+    assert!(output.contains("`mgreet`"), "{output}");
+    assert_valid_typst(&output);
+}
+
+/// mdoc's enclosure and spacing macros are punctuation, not words: what they
+/// produce has to read as the page reads.
+#[test]
+fn mdoc_enclosures_and_spacing_render_as_written() {
+    let source = concat!(
+        ".Dd x\n.Dt SSH 1\n.Os\n.Sh NAME\n.Nm ssh\n.Nd client\n",
+        ".Sh DESCRIPTION\nConnect to\n.Sm off\n.Oo user @ Oc host\n.Sm on\nover\n.Ux\nsockets,\n",
+        "see\n.Xr sshd 8 .\n",
+    );
+    let topic = man::parse(source).expect("mdoc parses");
+    let description = to_plain_text(
+        &topic
+            .description
+            .iter()
+            .flat_map(|block| match block {
+                Block::Paragraph(inlines) => inlines.clone(),
+                _ => Vec::new(),
+            })
+            .collect::<Vec<_>>(),
+    );
+
+    // `.Sm off` suspends the space between arguments until `.Sm on`.
+    assert!(description.contains("[user@]host"), "{description}");
+    // `.Ux` stands for its own name.
+    assert!(description.contains("UNIX"), "{description}");
+    // A trailing `.` after a macro is punctuation of the sentence.
+    assert!(description.contains("sshd"), "{description}");
 }

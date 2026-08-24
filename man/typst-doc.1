@@ -18,7 +18,7 @@ Where the entries go is decided by the output target. With \-\-output, each one 
 .PP
 Two topics can share a name — the same function documented in two modules, say. Their files and heading labels then take the shortest part of the source path that tells them apart, each entry shows the file it came from, and a reference to the shared name is left as plain code, since it addresses no single entry.
 .PP
-Four input languages are recognised, by extension: R documentation (.Rd), Python modules and packages (.py), Typst source documented with /// comments (.typ), and Unix manual pages written in the man(7) macro package (a section number such as .1 or .3, or .man).
+Four input languages are recognised, by extension: R documentation (.Rd), Python modules and packages (.py), Typst source documented with /// comments (.typ), and Unix manual pages in either macro package, man(7) or mdoc(7) (a section number such as .1 or .3, or .man).
 .PP
 Each topic title is a level\-1 heading. To nest the output under a title of your own, set the offset where you include it: `#set heading(offset: 1)`.
 .PP

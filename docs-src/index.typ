@@ -187,8 +187,10 @@ belongs in — `NAME` to the topic name, `SYNOPSIS` to the signature, anything
 ending in `OPTIONS` to the parameters, `RETURN VALUE` and `EXIT STATUS` to the
 value. Unrecognised sections keep their own heading rather than being guessed
 at. `ls(1)` in `SEE ALSO` is a cross-reference, exactly like an Rd `\link`.
-`.so` stubs and mdoc(7) pages are not pages, and scanning skips them with a
-warning.
+Both macro packages are read: man(7), which is presentational and has to be
+inferred from, and mdoc(7) — the BSD and macOS default — which names what each
+thing is and is taken at its word. A `.so` stub is not a page but a redirect,
+and scanning skips one with a warning.
 
 = Output validity
 

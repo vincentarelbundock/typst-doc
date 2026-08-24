@@ -50,8 +50,13 @@ fn main() -> Result<()> {
         labels: topics
             .iter()
             .zip(&addresses.slugs)
-            .filter(|((_, topic), _)| !addresses.ambiguous.contains(&topic.name))
-            .map(|((_, topic), slug)| (topic.name.clone(), slug.clone()))
+            .flat_map(|((_, topic), slug)| {
+                names_of(topic)
+                    .into_iter()
+                    .filter(|name| !addresses.ambiguous.contains(*name))
+                    .map(|name| (name.to_owned(), slug.clone()))
+                    .collect::<Vec<_>>()
+            })
             .collect(),
     };
 
@@ -284,7 +289,7 @@ fn scopes(
                 topics
                     .iter()
                     .enumerate()
-                    .filter(|(_, (_, topic))| &topic.name == name)
+                    .filter(|(_, (_, topic))| names_of(topic).contains(&name.as_str()))
             };
             let nearest = |matches: Vec<usize>| match matches[..] {
                 [only] => Some(only),
@@ -311,13 +316,33 @@ fn scopes(
     scopes
 }
 
-/// Names shared by two or more topics in the run.
+/// Every name a topic answers to: its own, and the aliases beside it.
+///
+/// An Rd file documents several functions under one `\name` and lists the rest
+/// as `\alias`; a man page's NAME line does the same for `printf`, `fprintf`,
+/// and `sprintf`. A reader writing `\link{sprintf}` means that page, so every
+/// one of those names has to address it — the entry is reachable under one
+/// name only if the others are thrown away. Repeats are dropped, since
+/// `\name{x}\alias{x}` is ordinary and does not make `x` ambiguous.
+fn names_of(topic: &Topic) -> Vec<&str> {
+    let mut names = vec![topic.name.as_str()];
+    for alias in &topic.aliases {
+        if !names.contains(&alias.as_str()) {
+            names.push(alias.as_str());
+        }
+    }
+    names
+}
+
+/// Names that more than one topic answers to, aliases included.
 fn duplicated_names(topics: &[(PathBuf, Topic)]) -> std::collections::HashSet<String> {
     let mut seen = std::collections::HashSet::new();
     let mut twice = std::collections::HashSet::new();
     for (_, topic) in topics {
-        if !seen.insert(topic.name.as_str()) {
-            twice.insert(topic.name.clone());
+        for name in names_of(topic) {
+            if !seen.insert(name.to_owned()) {
+                twice.insert(name.to_owned());
+            }
         }
     }
     twice
@@ -429,15 +454,12 @@ fn parse_file(path: &Path, lenient: Lenient) -> Result<Vec<Topic>> {
             .map_err(|error| anyhow::anyhow!("{error}"))
             .with_context(|| format!("parsing {}", path.display())),
         Some("typ") => Ok(typ::parse(&source)),
-        // A manual directory holds more than man(7) pages: `.so` stubs
-        // redirecting to another entry, and mdoc(7) pages this reader does
-        // not read. Scanning a directory skips them; naming one explicitly
-        // reports what it is.
+        // A manual directory holds more than pages: a `.so` stub redirects
+        // to another entry rather than standing on its own. Scanning a
+        // directory skips one; naming it explicitly reports what it is.
         Some(extension) if is_man_extension(extension) => match man::parse(&source) {
             Ok(topic) => Ok(vec![topic]),
-            Err(error @ (man::ManError::Redirect { .. } | man::ManError::Mdoc))
-                if lenient == Lenient::Yes =>
-            {
+            Err(error @ man::ManError::Redirect { .. }) if lenient == Lenient::Yes => {
                 eprintln!("warning: skipping {}: {error}", path.display());
                 Ok(Vec::new())
             }
@@ -738,5 +760,32 @@ mod tests {
         assert!(resolved.contains("@elsewhere"));
         // A `@` inside a raw block is not a reference.
         assert!(resolved.contains("```typ\n@image\n```"));
+    }
+
+    #[test]
+    fn a_topic_answers_to_its_aliases() {
+        let mut topic = Topic::new("printf");
+        topic.aliases = vec!["printf".to_owned(), "fprintf".to_owned()];
+        // `\name{x}\alias{x}` is ordinary and must not make `x` ambiguous.
+        assert_eq!(names_of(&topic), vec!["printf", "fprintf"]);
+
+        let topics = vec![(PathBuf::from("man/printf.3"), topic)];
+        assert!(duplicated_names(&topics).is_empty());
+    }
+
+    #[test]
+    fn two_topics_sharing_an_alias_are_ambiguous() {
+        let mut first = Topic::new("a");
+        first.aliases = vec!["shared".to_owned()];
+        let mut second = Topic::new("b");
+        second.aliases = vec!["shared".to_owned()];
+        let topics = vec![
+            (PathBuf::from("man/a.Rd"), first),
+            (PathBuf::from("man/b.Rd"), second),
+        ];
+
+        let ambiguous = duplicated_names(&topics);
+        assert!(ambiguous.contains("shared"));
+        assert!(!ambiguous.contains("a"));
     }
 }
