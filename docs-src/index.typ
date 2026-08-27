@@ -231,7 +231,10 @@ typst-doc man/ --template mine.typ -o reference/
 
 The template is inlined rather than imported, so every entry compiles on its
 own with no file beside it. Each one therefore carries its own copy, which is a
-fair price for a directory of self-contained documents.
+fair price for a directory of self-contained documents. The one exception is
+LaTeX math: an entry containing an `\eqn` imports
+#link("https://typst.app/universe/package/mitex")[MiTeX], because Typst math
+cannot read LaTeX. Nothing else is ever imported.
 
 == The data
 
@@ -281,29 +284,40 @@ to the loop.
 
 == Writing one
 
-`--output` writes two more files beside the manual, both generated, so neither
-can drift from what the binary actually does:
+`--output` writes two extra files beside the manual:
 
-- `template-default.typ`: the default template itself. Passing it back with
-  `--template` reproduces the default output exactly.
-- `example-data.typ`: one entry's data block, exercising every field.
+- `template-default.typ`, the template that produced it. Passing it back with
+  `--template` reproduces the same output exactly, so it is a working starting
+  point rather than a sketch.
+- `example-data.typ`, one entry's data block, filled in with every field a
+  topic can have.
 
-Concatenated, the two are a working document, which is how a template is
-previewed with no manual to hand:
+Both are rewritten on every run, so start by copying the default somewhere
+safe:
 
 ```sh
-cat reference/example-data.typ mytemplate.typ | typst compile - preview.pdf
+typst-doc man/ -o reference/
+cp reference/template-default.typ mine.typ
 ```
 
-Both are rewritten on every run, so copy `template-default.typ` under another
-name before editing it. Names beginning with `doc-` are reserved for the data
-contract; anything else a template defines is its own. A template is code, so a
-typo in a binding name surfaces when Typst compiles the manual, not when
-`typst-doc` writes it.
+Edit `mine.typ`, then preview it against the example data. Those two files are
+a complete document once concatenated, so you can see the result without
+building a manual first:
 
-A generated entry imports exactly one thing, and only when it contains LaTeX
-math: #link("https://typst.app/universe/package/mitex")[MiTeX], because Typst
-math cannot read LaTeX. Nothing else is ever imported.
+```sh
+cat reference/example-data.typ mine.typ | typst compile - preview.pdf
+```
+
+When it looks right, build the manual with it:
+
+```sh
+typst-doc man/ --template mine.typ -o reference/
+```
+
+Two things to know while editing. Names beginning with `doc-` belong to the
+data contract, so give a template's own helpers any other name. And a template
+is code rather than markup, so a mistyped binding is caught when Typst compiles
+the manual, not when `typst-doc` writes it.
 
 = Output validity
 
