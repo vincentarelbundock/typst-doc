@@ -24,9 +24,9 @@ Convert one R help file and print the Typst to standard output:
 typst\-doc man/mean_ci.Rd
 .EE
 .PP
-Convert a Python module, rendering parameters as a term list:
+Convert a Python module, writing the Typst to a file:
 .EX
-typst\-doc stats.py \-\-params terms > stats.typ
+typst\-doc stats.py > stats.typ
 .EE
 .PP
 Convert a whole R package's help directory into one manual on standard output:
@@ -38,6 +38,11 @@ Write a package that documents many functions into a directory, one file per
 topic plus an index:
 .EX
 typst\-doc src/lib.typ \-o reference/
+.EE
+.PP
+Restyle a whole manual by replacing the template rather than passing options:
+.EX
+typst\-doc man/ \-\-template mine.typ \-o reference/
 .EE
 .SH SEE ALSO
 .BR typst (1),

@@ -63,8 +63,16 @@ fn main() -> Result<()> {
 
     let addresses = Addresses::of(&topics);
 
+    let template = cli
+        .template
+        .as_ref()
+        .map(|path| {
+            std::fs::read_to_string(path).with_context(|| format!("reading {}", path.display()))
+        })
+        .transpose()?;
+
     let options = Options {
-        params_format: cli.params.into(),
+        template,
         // A shared name addresses two headings, so it addresses neither.
         labels: topics
             .iter()
@@ -133,6 +141,7 @@ fn main() -> Result<()> {
         let file = dir.join(file_name);
         std::fs::write(&file, document).with_context(|| format!("writing {}", file.display()))?;
     }
+    write_template_starters(dir, &names)?;
     write_index(dir, &names)
 }
 
@@ -175,6 +184,107 @@ fn apply_package_api(api: &typ::package::Api, topics: &mut [(PathBuf, Topic)]) -
     unexported
 }
 
+/// The two files a template author starts from: the default template, and one
+/// entry's data block showing what it has to work with.
+///
+/// Both are generated rather than written by hand. The template is the one the
+/// binary actually inlines, and the example data comes out of the same emitter
+/// as every real entry, so neither can drift from what `--template` is handed.
+/// Both are rewritten on every run, which is why the template says to copy it
+/// before editing.
+fn write_template_starters(dir: &Path, names: &[String]) -> Result<()> {
+    for reserved in ["template-default.typ", "example-data.typ"] {
+        if names.iter().any(|name| name == reserved) {
+            eprintln!("warning: a topic file is named {reserved}; not writing it");
+            return Ok(());
+        }
+    }
+
+    let file = dir.join("template-default.typ");
+    std::fs::write(&file, typst_doc::DEFAULT_TEMPLATE)
+        .with_context(|| format!("writing {}", file.display()))?;
+
+    // An empty template renders nothing, leaving the data block alone.
+    let data = topic_to_typst(
+        &example_topic(),
+        &Entry::default(),
+        &Options {
+            template: Some(String::new()),
+            ..Options::default()
+        },
+    );
+    let file = dir.join("example-data.typ");
+    std::fs::write(
+        &file,
+        format!(
+            "// One entry's data block, as `typst-doc` emits it. A template is \
+             inlined\n// below a block of exactly this shape. See \
+             template-default.typ.\n\n{data}"
+        ),
+    )
+    .with_context(|| format!("writing {}", file.display()))
+}
+
+/// A topic exercising every field a template can read, so the example data is
+/// complete rather than whatever the first real entry happened to contain.
+fn example_topic() -> Topic {
+    use typst_doc::ir::{Block, Example, Inline, Param, Section};
+
+    let prose = |text: &str| vec![Block::Paragraph(vec![Inline::text(text)])];
+    Topic {
+        name: "mean_ci".to_owned(),
+        title: vec![Inline::text("Confidence interval for a mean")],
+        aliases: vec!["mean_ci".to_owned()],
+        keywords: Vec::new(),
+        signature: Some("mean_ci(x, level = 0.95)".to_owned()),
+        lang: Some("r".to_owned()),
+        description: prose("Computes a normal-approximation confidence interval."),
+        details: prose("The interval is symmetric about the sample mean."),
+        params: vec![
+            Param {
+                names: vec!["x".to_owned()],
+                ty: Some("numeric".to_owned()),
+                default: None,
+                optional: false,
+                body: prose("A numeric vector."),
+            },
+            Param {
+                names: vec!["level".to_owned()],
+                ty: Some("numeric".to_owned()),
+                default: Some("0.95".to_owned()),
+                optional: true,
+                body: prose("Coverage probability."),
+            },
+        ],
+        value: prose("A numeric vector of length two."),
+        raises: vec![Param {
+            names: vec!["ValueError".to_owned()],
+            ty: None,
+            default: None,
+            optional: false,
+            body: prose("If x is empty."),
+        }],
+        examples: vec![
+            Example {
+                code: "mean_ci(rnorm(100))".to_owned(),
+                run: true,
+            },
+            Example {
+                code: "mean_ci(x, level = 0.99)".to_owned(),
+                run: false,
+            },
+        ],
+        seealso: prose("t.test"),
+        references: prose("Casella and Berger (2002)."),
+        note: prose("Assumes approximate normality."),
+        author: prose("A. Person"),
+        sections: vec![Section {
+            title: vec![Inline::text("Caveats")],
+            body: prose("An unrecognised section keeps its own heading."),
+        }],
+    }
+}
+
 /// The entry point of a split manual: a table of contents followed by an
 /// `#include` of every topic file, so one `typst compile index.typ` builds
 /// the whole reference and cross-topic references resolve.
@@ -195,7 +305,7 @@ fn write_index(dir: &Path, names: &[String]) -> Result<()> {
 ///
 /// The R and man readers produce semantic links, which the writer resolves as
 /// it goes. A Typst doc comment instead carries `@name` as markup, in tidy's
-/// convention, and it passes through to the output verbatim — where Typst
+/// convention, and it passes through to the output verbatim, where Typst
 /// rejects it, since referencing an unnumbered heading is an error even when
 /// the name is unique. Resolving it here, against the same scope-first map the
 /// writer uses, turns it into the `#link(label(..))` form that works, and
@@ -309,10 +419,10 @@ struct Addresses {
 
 impl Addresses {
     /// The usual slug is the topic's name, but topics sharing a name would
-    /// address — and overwrite — each other. A colliding group instead takes
-    /// the shortest suffix of each source path that tells its members apart —
-    /// mosaic's two `image` functions become `component-image` and
-    /// `layout-image` — and a warning reports the choice. The suffix
+    /// address, and overwrite, each other. A colliding group instead takes
+    /// the shortest suffix of each source path that tells its members apart
+    /// (mosaic's two `image` functions become `component-image` and
+    /// `layout-image`), and a warning reports the choice. The suffix
     /// disambiguates the topic within this run; it makes no claim about the
     /// function's qualified name, which the source layout does not determine.
     fn of(topics: &[(PathBuf, Topic)]) -> Self {
@@ -328,7 +438,7 @@ impl Addresses {
 /// A reference is written from somewhere. `@image` in a doc comment inside
 /// `component/` means the `image` defined there, the way an import written at
 /// that spot would, so a shared name still resolves for the topics sitting
-/// beside one of its definitions — the same file first, then the same
+/// beside one of its definitions: the same file first, then the same
 /// directory. It falls back to plain code only where it is genuinely ambiguous
 /// from where it was written, which leaves a package documented in one run
 /// with its links intact.
@@ -379,7 +489,7 @@ fn scopes(
 /// An Rd file documents several functions under one `\name` and lists the rest
 /// as `\alias`; a man page's NAME line does the same for `printf`, `fprintf`,
 /// and `sprintf`. A reader writing `\link{sprintf}` means that page, so every
-/// one of those names has to address it — the entry is reachable under one
+/// one of those names has to address it, since the entry is reachable under one
 /// name only if the others are thrown away. Repeats are dropped, since
 /// `\name{x}\alias{x}` is ordinary and does not make `x` ambiguous.
 fn names_of(topic: &Topic) -> Vec<&str> {
@@ -422,7 +532,7 @@ fn topic_slugs(topics: &[(PathBuf, Topic)]) -> Vec<String> {
         }
         let chosen = disambiguate(&indices, topics);
         eprintln!(
-            "warning: {} topics named `{name}`; writing {} — a reference to `{name}` resolves to the nearest, or stays plain code",
+            "warning: {} topics named `{name}`; writing {}; a reference to `{name}` resolves to the nearest, or stays plain code",
             indices.len(),
             chosen
                 .iter()
@@ -591,7 +701,7 @@ fn hidden(path: &Path) -> bool {
 /// for its directory.
 ///
 /// The highest `__init__.py` found decides where the package starts, and every
-/// directory below it belongs to the path whether it carries one or not — a
+/// directory below it belongs to the path whether it carries one or not: a
 /// PEP 420 namespace subpackage has none and is still imported through its
 /// parent. Directories above that highest one are somebody's source tree, not
 /// part of any import path, so a loose `src/stats.py` stays `stats`.

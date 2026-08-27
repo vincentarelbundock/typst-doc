@@ -6,22 +6,21 @@
 pub mod escape;
 mod html;
 
-use crate::ir::{Align, Block, Example, Inline, LinkDest, Param, Section, Target, Term, Topic};
+use crate::ir::{Align, Block, Example, Inline, LinkDest, Param, Target, Term, Topic};
 use escape::{escape_text_at, indent_continuation, typst_string, typst_string_array};
 
-/// How to render the parameter list.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
-pub enum ParamsFormat {
-    /// A two-column `#table`.
-    #[default]
-    Table,
-    /// A `#terms` list.
-    Terms,
-}
+/// The rendering half of a generated document, inlined below the data block.
+///
+/// Inlined rather than imported, because an entry must compile on its own with
+/// no file beside it. The cost is that every entry carries a copy; the benefit
+/// is that a manual is a directory of self-contained documents.
+pub const DEFAULT_TEMPLATE: &str = include_str!("template.typ");
 
 #[derive(Debug, Clone, Default)]
 pub struct Options {
-    pub params_format: ParamsFormat,
+    /// The template inlined after each topic's data, or [`DEFAULT_TEMPLATE`]
+    /// when absent.
+    pub template: Option<String>,
     /// Every topic name in the run that addresses exactly one heading, mapped
     /// to the label that heading carries. A shared name is absent here and
     /// resolves, if at all, through the referring topic's [`Entry::scope`].
@@ -31,10 +30,17 @@ pub struct Options {
     pub labels: std::collections::HashMap<String, String>,
 }
 
+impl Options {
+    /// The template to inline: the caller's, or the built-in default.
+    pub fn template(&self) -> &str {
+        self.template.as_deref().unwrap_or(DEFAULT_TEMPLATE)
+    }
+}
+
 /// What a topic cannot know about itself, because it depends on the other
 /// topics in the same run.
 ///
-/// Both fields answer one question — which of the same-named topics is this? —
+/// Both fields answer one question, which of the same-named topics is this,
 /// for the two audiences that ask it: [`label`](Entry::label) for Typst, which
 /// resolves references, and [`source`](Entry::source) for the reader, who would
 /// otherwise face two entries with identical names and signatures.
@@ -53,11 +59,15 @@ pub struct Entry<'a> {
     pub scope: Option<&'a std::collections::HashMap<String, String>>,
 }
 
-/// Render a topic as a standalone Typst document body.
+/// Render a topic as a standalone Typst document.
+///
+/// The document is in two halves. The first binds the topic's content to a
+/// fixed set of `doc-` variables; the second is the template, which renders
+/// them. Only the second half decides how anything looks, so restyling a
+/// manual means replacing it, never adding an option here.
 pub fn topic_to_typst(topic: &Topic, entry: &Entry, options: &Options) -> String {
-    let mut writer = Writer::new(entry, options);
-    writer.write_topic(topic);
-    let body = writer.finish();
+    let writer = Writer::new(entry, options);
+    let body = format!("{}\n{}", writer.data_block(topic), options.template());
 
     // The MiTeX import is emitted only by documents that actually contain
     // math, so the common case has no external dependency.
@@ -89,89 +99,164 @@ impl<'a> Writer<'a> {
         }
     }
 
-    fn finish(mut self) -> String {
-        while self.out.ends_with('\n') {
-            self.out.pop();
-        }
-        self.out.push('\n');
-        self.out
-    }
+    // -- data -------------------------------------------------------------
 
-    // -- topic ------------------------------------------------------------
-
-    fn write_topic(&mut self, topic: &Topic) {
+    /// Bind everything the template may render to a fixed set of variables.
+    ///
+    /// Every variable is emitted for every topic, empty where the topic has
+    /// nothing: a template that reads `doc-examples` must not fail on the one
+    /// entry that happens to have none.
+    fn data_block(&self, topic: &Topic) -> String {
         let label = self.entry.label.unwrap_or(&topic.name);
-        self.write_heading(1, &topic.title, Some(label));
-
-        if let Some(signature) = &topic.signature {
-            self.write_code_block(topic.lang.as_deref(), signature);
-        }
-
-        // Two topics of the same name render the same name and signature, so
-        // the file each came from is the only thing telling them apart.
-        if let Some(source) = self.entry.source {
-            self.ensure_blank_line();
-            self.write_inlines(&[
-                Inline::Emph(vec![Inline::text("Defined in")]),
-                Inline::text(" "),
-                Inline::Code(source.to_owned()),
-            ]);
-            self.newline();
-        }
-
-        self.write_section(topic, 2, "Description", &topic.description);
-
-        if !topic.params.is_empty() {
-            self.write_labelled_heading(2, "Arguments");
-            self.write_params(&topic.params);
-        }
-
-        self.write_section(topic, 2, "Details", &topic.details);
-        self.write_section(topic, 2, "Value", &topic.value);
-
-        if !topic.raises.is_empty() {
-            self.write_labelled_heading(2, "Raises");
-            self.write_params(&topic.raises);
-        }
-
-        for section in &topic.sections {
-            self.write_custom_section(section);
-        }
-
-        self.write_section(topic, 2, "Note", &topic.note);
-
-        if !topic.examples.is_empty() {
-            self.write_labelled_heading(2, "Examples");
-            for example in &topic.examples {
-                self.write_example(topic.lang.as_deref(), example);
+        let mut out = String::new();
+        out.push_str(&format!("#let doc-name = {}\n", typst_string(&topic.name)));
+        // A label literal, so the reference machinery still sees `<name>` in
+        // the source. Names Typst cannot spell as a label carry none.
+        out.push_str(&format!(
+            "#let doc-label = {}\n",
+            if is_label_safe(label) {
+                format!("<{label}>")
+            } else {
+                "none".to_owned()
             }
+        ));
+        out.push_str(&format!(
+            "#let doc-title = [{}]\n",
+            self.render_isolated_inline(&topic.title)
+        ));
+        out.push_str(&format!(
+            "#let doc-aliases = {}\n",
+            typst_string_array(&topic.aliases)
+        ));
+        out.push_str(&format!(
+            "#let doc-source = {}\n",
+            optional_string(self.entry.source)
+        ));
+        out.push_str(&format!(
+            "#let doc-signature = {}\n",
+            match &topic.signature {
+                Some(signature) => raw_literal(topic.lang.as_deref(), signature),
+                None => "none".to_owned(),
+            }
+        ));
+        out.push_str(&format!(
+            "#let doc-params = {}\n",
+            self.params_array(&topic.params)
+        ));
+        out.push_str(&format!(
+            "#let doc-raises = {}\n",
+            self.params_array(&topic.raises)
+        ));
+        out.push_str(&format!(
+            "#let doc-examples = {}\n",
+            self.examples_array(topic.lang.as_deref(), &topic.examples)
+        ));
+        out.push_str(&format!(
+            "#let doc-sections = {}\n",
+            self.sections_array(topic)
+        ));
+        out
+    }
+
+    fn params_array(&self, params: &[Param]) -> String {
+        if params.is_empty() {
+            return "()".to_owned();
         }
-
-        self.write_section(topic, 2, "See Also", &topic.seealso);
-        self.write_section(topic, 2, "References", &topic.references);
-        self.write_section(topic, 2, "Author", &topic.author);
-    }
-
-    fn write_section(&mut self, _topic: &Topic, level: u8, title: &str, body: &[Block]) {
-        if body.is_empty() {
-            return;
+        let mut out = String::from("(\n");
+        for param in params {
+            out.push_str(&format!(
+                "  (names: {}, type: {}, default: {}, optional: {}, body: [{}]),\n",
+                typst_string_array(&param.names),
+                optional_string(param.ty.as_deref()),
+                optional_string(param.default.as_deref()),
+                param.optional,
+                indent_continuation(&self.render_isolated(&param.body), 4)
+            ));
         }
-        self.write_labelled_heading(level, title);
-        self.write_blocks(body);
+        out.push(')');
+        out
     }
 
-    fn write_custom_section(&mut self, section: &Section) {
-        self.ensure_blank_line();
-        self.write_heading(2, &section.title, None);
-        self.write_blocks(&section.body);
+    fn examples_array(&self, lang: Option<&str>, examples: &[Example]) -> String {
+        if examples.is_empty() {
+            return "()".to_owned();
+        }
+        let mut out = String::from("(\n");
+        for example in examples {
+            // `run` is what `\dontrun{}` meant, kept as data: whether an
+            // example is executable is the template's to act on, or ignore.
+            out.push_str(&format!(
+                "  (run: {}, code: {}),\n",
+                example.run,
+                raw_literal(lang, &example.code)
+            ));
+        }
+        out.push(')');
+        out
     }
 
-    fn write_labelled_heading(&mut self, level: u8, title: &str) {
-        self.write_heading(level, &[Inline::text(title)], None);
+    /// Every section the topic has, in order, each tagged with what it holds.
+    ///
+    /// Order is data rather than control flow, so a template renders the whole
+    /// entry in one loop and reorders or retitles by manipulating this list.
+    /// Empty sections are absent, which is why the loop needs no guards.
+    fn sections_array(&self, topic: &Topic) -> String {
+        let mut entries: Vec<String> = Vec::new();
+        let prose = |id: &str, title: &str, body: &[Block]| {
+            if body.is_empty() {
+                return None;
+            }
+            Some(format!(
+                "  (id: \"{id}\", title: [{title}], kind: \"prose\", body: [\n{}\n  ]),\n",
+                self.render_isolated(body)
+            ))
+        };
+
+        entries.extend(prose("description", "Description", &topic.description));
+        if !topic.params.is_empty() {
+            entries.push(
+                "  (id: \"arguments\", title: [Arguments], kind: \"params\", items: doc-params),\n"
+                    .to_owned(),
+            );
+        }
+        entries.extend(prose("details", "Details", &topic.details));
+        entries.extend(prose("value", "Value", &topic.value));
+        if !topic.raises.is_empty() {
+            entries.push(
+                "  (id: \"raises\", title: [Raises], kind: \"params\", items: doc-raises),\n"
+                    .to_owned(),
+            );
+        }
+        for section in &topic.sections {
+            entries.push(format!(
+                "  (id: \"custom\", title: [{}], kind: \"prose\", body: [\n{}\n  ]),\n",
+                self.render_isolated_inline(&section.title),
+                self.render_isolated(&section.body)
+            ));
+        }
+        entries.extend(prose("note", "Note", &topic.note));
+        if !topic.examples.is_empty() {
+            entries.push(
+                "  (id: \"examples\", title: [Examples], kind: \"examples\", items: doc-examples),\n"
+                    .to_owned(),
+            );
+        }
+        entries.extend(prose("seealso", "See Also", &topic.seealso));
+        entries.extend(prose("references", "References", &topic.references));
+        entries.extend(prose("author", "Author", &topic.author));
+
+        if entries.is_empty() {
+            return "()".to_owned();
+        }
+        format!("(\n{})", entries.concat())
     }
 
-    fn write_heading(&mut self, level: u8, content: &[Inline], label: Option<&str>) {
-        if content.is_empty() && label.is_none() {
+    // -- blocks -----------------------------------------------------------
+
+    /// A heading inside a section's prose. Manual sections themselves are
+    /// headings the template makes, not markup this writer emits.
+    fn write_heading(&mut self, level: u8, content: &[Inline]) {
+        if content.is_empty() {
             return;
         }
         self.ensure_blank_line();
@@ -181,78 +266,9 @@ impl<'a> Writer<'a> {
         self.out.push(' ');
         self.at_line_start = false;
         self.write_inlines(content);
-        if let Some(label) = label {
-            // Labels must be valid Typst identifiers; anything else is dropped
-            // rather than emitted as a broken reference target.
-            if is_label_safe(label) {
-                self.out.push_str(&format!(" <{label}>"));
-            }
-        }
         self.newline();
         self.ensure_blank_line();
     }
-
-    fn write_params(&mut self, params: &[Param]) {
-        match self.options.params_format {
-            ParamsFormat::Terms => self.write_params_terms(params),
-            ParamsFormat::Table => self.write_params_table(params),
-        }
-    }
-
-    fn write_params_terms(&mut self, params: &[Param]) {
-        self.ensure_blank_line();
-        self.out.push_str("#terms(\n");
-        for param in params {
-            let names = self.render_isolated_inline(&[Inline::Code(param_names(param))]);
-            let body = self.render_isolated(&param.body);
-            self.out.push_str(&format!(
-                "  terms.item([{}], [{}]),\n",
-                names,
-                indent_continuation(&body, 2)
-            ));
-        }
-        self.out.push_str(")\n");
-        self.at_line_start = true;
-        self.ensure_blank_line();
-    }
-
-    fn write_params_table(&mut self, params: &[Param]) {
-        self.ensure_blank_line();
-        self.out
-            .push_str("#table(\n  columns: 2,\n  stroke: none,\n");
-        for param in params {
-            let names = self.render_isolated_inline(&[Inline::Code(param_names(param))]);
-            let mut body = self.render_isolated(&param.body);
-            if let Some(ty) = &param.ty {
-                let ty = self.render_isolated_inline(&[Inline::Code(ty.clone())]);
-                body = if body.is_empty() {
-                    ty
-                } else {
-                    format!("{ty} \\\n{body}")
-                };
-            }
-            self.out.push_str(&format!(
-                "  [{}], [{}],\n",
-                names,
-                indent_continuation(&body, 2)
-            ));
-        }
-        self.out.push_str(")\n");
-        self.at_line_start = true;
-        self.ensure_blank_line();
-    }
-
-    fn write_example(&mut self, lang: Option<&str>, example: &Example) {
-        if !example.run {
-            // Not executable, but still worth showing. A comment marks why.
-            self.ensure_blank_line();
-            self.out.push_str("// not run\n");
-            self.at_line_start = true;
-        }
-        self.write_code_block(lang, &example.code);
-    }
-
-    // -- blocks -----------------------------------------------------------
 
     fn write_blocks(&mut self, blocks: &[Block]) {
         for block in blocks {
@@ -268,7 +284,7 @@ impl<'a> Writer<'a> {
                 self.newline();
             }
             Block::Heading { level, content } => {
-                self.write_heading(level.saturating_add(1), content, None);
+                self.write_heading(level.saturating_add(1), content);
             }
             Block::Code { lang, value } => self.write_code_block(lang.as_deref(), value),
             Block::List { ordered, items } => self.write_list(*ordered, items),
@@ -489,8 +505,8 @@ impl<'a> Writer<'a> {
     ///
     /// Typst's `*`/`_` markers only delimit at a word boundary, so `_n_th`
     /// never closes its emphasis and the document fails to parse. Where a
-    /// boundary is missing — or the content itself starts or ends with a
-    /// space, which the markers also reject — the function form carries the
+    /// boundary is missing, or the content itself starts or ends with a
+    /// space, which the markers also reject, the function form carries the
     /// same meaning with no such constraint.
     fn wrap(&mut self, marker: &str, children: &[Inline]) {
         let inner = self.render_isolated_inline(children);
@@ -613,8 +629,22 @@ impl<'a> Writer<'a> {
     }
 }
 
-fn param_names(param: &Param) -> String {
-    param.names.join(", ")
+/// A Typst string literal, or `none` where there is nothing to say.
+fn optional_string(value: Option<&str>) -> String {
+    value.map_or_else(|| "none".to_owned(), typst_string)
+}
+
+/// A raw block literal, usable in code position: `` ```lang … ``` ``.
+///
+/// The fence is longer than any backtick run inside, so code containing
+/// backticks cannot close it early.
+fn raw_literal(lang: Option<&str>, value: &str) -> String {
+    let ticks = "`".repeat(longest_backtick_run(value).max(2) + 1);
+    format!(
+        "{ticks}{}\n{}\n{ticks}",
+        lang.unwrap_or(""),
+        value.trim_end()
+    )
 }
 
 /// Whether a string is usable as a Typst label without escaping.

@@ -1,7 +1,7 @@
 //! End-to-end tests: source in, Typst out, validated by Typst's own parser.
 
 use typst_doc::ir::{Block, to_plain_text};
-use typst_doc::typst::{Options, ParamsFormat};
+use typst_doc::typst::Options;
 use typst_doc::{Entry, man, python, r, topic_to_typst, typ};
 
 /// Assert that generated markup parses as well-formed Typst.
@@ -74,22 +74,13 @@ fn rd_round_trips_to_valid_typst() {
     assert_eq!(topic.examples.len(), 2);
     assert!(!topic.examples[1].run);
 
-    for format in [ParamsFormat::Table, ParamsFormat::Terms] {
-        let output = topic_to_typst(
-            &topic,
-            &Entry::default(),
-            &Options {
-                params_format: format,
-                ..Options::default()
-            },
-        );
-        assert_valid_typst(&output);
-        // Math anywhere in the document pulls in the MiTeX import, once.
-        assert_eq!(output.matches("#import").count(), 1);
-        // `\describe` renders as explicit `terms.item` entries; the array
-        // shorthand is deprecated in Typst 0.14+.
-        assert!(output.contains("terms.item("), "{output}");
-    }
+    let output = topic_to_typst(&topic, &Entry::default(), &Options::default());
+    assert_valid_typst(&output);
+    // Math anywhere in the document pulls in the MiTeX import, once.
+    assert_eq!(output.matches("#import").count(), 1);
+    // `\describe` renders as explicit `terms.item` entries; the array
+    // shorthand is deprecated in Typst 0.14+.
+    assert!(output.contains("terms.item("), "{output}");
 }
 
 #[test]
@@ -402,8 +393,10 @@ fn typ_headings_route_to_sections() {
     );
 
     let output = topic_to_typst(topic, &Entry::default(), &Options::default());
-    assert!(output.contains("== Examples"), "{output}");
-    assert!(output.contains("== Whatever"), "{output}");
+    // Section headings are the template's to make, so what the writer emits
+    // is the section list the template loops over.
+    assert!(output.contains("title: [Examples]"), "{output}");
+    assert!(output.contains("title: [Whatever]"), "{output}");
     assert!(output.contains("Custom prose."), "{output}");
     assert_valid_typst(&output);
 }
@@ -790,7 +783,10 @@ fn a_shared_name_is_disambiguated_by_label_and_provenance() {
 
     assert!(output.contains("<component-image>"), "{output}");
     assert!(!output.contains("<image>"), "{output}");
-    assert!(output.contains("`src/component/image.typ`"), "{output}");
+    assert!(
+        output.contains(r#"doc-source = "src/component/image.typ""#),
+        "{output}"
+    );
     assert_valid_typst(&output);
 }
 
@@ -909,4 +905,88 @@ fn mdoc_enclosures_and_spacing_render_as_written() {
     assert!(description.contains("UNIX"), "{description}");
     // A trailing `.` after a macro is punctuation of the sentence.
     assert!(description.contains("sshd"), "{description}");
+}
+
+/// The template contract: every `doc-` variable is defined for every topic,
+/// empty where the topic has nothing.
+///
+/// Emitting a variable only when it has content would push an `#if` guard into
+/// every template that reads it, and break that template on the one entry
+/// whose field happened to be empty.
+#[test]
+fn every_topic_defines_the_whole_data_vocabulary() {
+    // The barest topic a reader can produce: a name and nothing else.
+    let topic = r::parse(r"\name{x}\title{t}").expect("Rd parses");
+    let output = topic_to_typst(&topic, &Entry::default(), &Options::default());
+
+    for name in [
+        "doc-name",
+        "doc-label",
+        "doc-title",
+        "doc-aliases",
+        "doc-source",
+        "doc-signature",
+        "doc-params",
+        "doc-raises",
+        "doc-examples",
+        "doc-sections",
+    ] {
+        assert!(output.contains(&format!("#let {name} = ")), "{output}");
+    }
+    assert_valid_typst(&output);
+}
+
+/// A template replaces the rendering half and nothing else.
+#[test]
+fn a_custom_template_replaces_only_the_rendering_half() {
+    let topic = r::parse(RD).expect("Rd parses");
+    let output = topic_to_typst(
+        &topic,
+        &Entry::default(),
+        &Options {
+            template: Some("#doc-title\n".to_owned()),
+            ..Options::default()
+        },
+    );
+
+    // The data survives untouched...
+    assert!(output.contains("#let doc-params = ("), "{output}");
+    assert!(output.contains("#let doc-sections = ("), "{output}");
+    // ...and only the default template's rendering is gone.
+    assert!(!output.contains("doc-render-params"), "{output}");
+    assert!(output.ends_with("#doc-title\n"), "{output}");
+    assert_valid_typst(&output);
+}
+
+/// The shipped default is a real template, not a copy that can drift: passing
+/// it back with `--template` has to reproduce the default output exactly.
+#[test]
+fn the_default_template_is_the_one_that_ships() {
+    let topic = r::parse(RD).expect("Rd parses");
+    let default = topic_to_typst(&topic, &Entry::default(), &Options::default());
+    let explicit = topic_to_typst(
+        &topic,
+        &Entry::default(),
+        &Options {
+            template: Some(typst_doc::DEFAULT_TEMPLATE.to_owned()),
+            ..Options::default()
+        },
+    );
+
+    assert_eq!(default, explicit);
+}
+
+/// An entry has to compile with nothing beside it, which is why the template
+/// is inlined rather than imported.
+#[test]
+fn an_entry_imports_nothing_of_its_own() {
+    for source in [RD, r"\name{x}\title{t}\description{No math here.}"] {
+        let topic = r::parse(source).expect("Rd parses");
+        let output = topic_to_typst(&topic, &Entry::default(), &Options::default());
+        // MiTeX is the one exception: LaTeX math has no self-contained
+        // rendering in Typst. Nothing else may be imported.
+        for line in output.lines().filter(|line| line.starts_with("#import")) {
+            assert!(line.contains("@preview/mitex"), "{output}");
+        }
+    }
 }

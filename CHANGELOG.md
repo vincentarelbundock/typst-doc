@@ -6,6 +6,24 @@ follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## Unreleased
 
+### Added
+
+- **Every generated document is now data plus a template.** An entry binds its
+  content to a fixed set of `doc-` variables (`doc-title`, `doc-params`,
+  `doc-sections`, and the rest, each defined for every topic and empty where
+  the topic has nothing), and a template below renders them. The template is
+  inlined, not imported, so an entry still compiles on its own.
+- **`--template FILE` replaces the rendering half.** With `--output`,
+  `template-default.typ` and `example-data.typ` are written beside the manual;
+  concatenated, they are a working document to preview a template against.
+  Passing `template-default.typ` back reproduces the default output exactly.
+
+### Removed
+
+- **`--params`.** Table-versus-terms is now a few lines in a template, which is
+  where every other styling decision lives too. This was the whole point of the
+  change: presentation options belong in Typst, not in the CLI.
+
 ## 0.0.1
 
 First release. Reads documentation from four sources and writes Typst markup:

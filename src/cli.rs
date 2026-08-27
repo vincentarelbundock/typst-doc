@@ -3,24 +3,7 @@
 
 use std::path::PathBuf;
 
-use clap::{Parser, ValueEnum};
-
-use crate::typst::ParamsFormat;
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, ValueEnum)]
-pub enum Params {
-    Table,
-    Terms,
-}
-
-impl From<Params> for ParamsFormat {
-    fn from(value: Params) -> Self {
-        match value {
-            Params::Table => Self::Table,
-            Params::Terms => Self::Terms,
-        }
-    }
-}
+use clap::Parser;
 
 /// `long_about` is written for the man page DESCRIPTION, so `-h` keeps the
 /// one-line `about` and only `--help` in full shows it.
@@ -43,7 +26,7 @@ into a single document on standard output, in the order given.
 
 A Typst package is read through its entry point: each definition is named by \
 the path it is imported under, and what the entry point does not export is \
-treated as internal. Elsewhere, two topics can share a name — the same \
+treated as internal. Elsewhere, two topics can share a name: the same \
 function documented in two modules, say. Their files and heading labels then \
 take the shortest part of the source \
 path that tells them apart, each entry shows the file it came from, and a \
@@ -55,12 +38,22 @@ Python modules and packages (.py), Typst source documented with /// comments \
 (.typ), and Unix manual pages in either macro package, man(7) or mdoc(7) \
 (a section number such as .1 or .3, or .man).
 
+Each generated document is in two halves. The first binds the topic's content \
+to a fixed set of doc- variables (doc-title, doc-params, doc-sections, and \
+the rest), every one of them defined for every topic, empty where the topic \
+has nothing. The second is the template, which renders them, and is the only \
+half that decides how an entry looks. It is inlined rather than imported, so \
+an entry compiles on its own with nothing beside it. Pass --template FILE to \
+supply your own; with --output, the default is written to \
+template-default.typ, and one entry's data to example-data.typ, as a place to \
+start.
+
 Each topic title is a level-1 heading. To nest the output under a title of \
 your own, set the offset where you include it: `#set heading(offset: 1)`.
 
 Cross-references resolve within a run, from where they are written: a link, or\
 an author-written @name, becomes a real link to the entry it names, choosing\
-the nearest definition when a name is shared — the same file first, then the\
+the nearest definition when a name is shared: the same file first, then the\
 same directory. A target this run does not define, or one still ambiguous from\
 where it was written, renders as plain code, with a warning.
 
@@ -83,9 +76,12 @@ pub struct Cli {
     #[arg(short, long)]
     pub output: Option<PathBuf>,
 
-    /// How to render the parameter list: table or terms.
-    #[arg(long, value_enum, default_value_t = Params::Table, hide_possible_values = true)]
-    pub params: Params,
+    /// A Typst file whose contents replace the default template: the half of
+    /// each generated document that renders the data block above it. The
+    /// default is written to `template-default.typ` alongside the manual
+    /// whenever `--output` is given, as a starting point.
+    #[arg(long, value_name = "FILE")]
+    pub template: Option<PathBuf>,
 
     /// Include internal topics: `\keyword{internal}` in R (the signal
     /// pkgdown filters on), and `_`-prefixed names in Python. Skipped by
