@@ -6,6 +6,8 @@ follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## Unreleased
 
+## 0.0.2
+
 ### Added
 
 - **Every generated document is now data plus a template.** An entry binds its
