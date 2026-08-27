@@ -1818,16 +1818,97 @@ mean_ci(x, level = 0.95)
   (id: <span class="calepin-syntax-scope-3">"arguments"</span>, title: [Arguments], kind: <span class="calepin-syntax-scope-3">"params"</span>, items: doc-params),
 )
 
-<span class="calepin-syntax-scope-1">// ... the template, rendering those bindings ...</span></code></pre></div><p>The first half is what the entry <em>says</em>; the second is the only thing that decides how it <em>looks</em>. So there are no styling options: to change how a manual is typeset, replace the template.</p><div class="sourceCode" data-lang="sh"><pre><code data-lang="sh"><span class="calepin-syntax-scope-22">typst-doc</span> man/<span class="calepin-syntax-scope-25"> -</span><span class="calepin-syntax-scope-28">o</span> reference/          <span class="calepin-syntax-scope-2">#</span><span class="calepin-syntax-scope-1"> writes template-default.typ too</span>
+<span class="calepin-syntax-scope-1">// ... the template, rendering those bindings ...</span></code></pre></div><p>The first half is what the entry <em>says</em>; the second is the only thing that decides how it <em>looks</em>. So there are no styling options: to change how a manual is typeset, replace the template.</p><div class="sourceCode" data-lang="sh"><pre><code data-lang="sh"><span class="calepin-syntax-scope-22">typst-doc</span> man/<span class="calepin-syntax-scope-25"> -</span><span class="calepin-syntax-scope-28">o</span> reference/
 <span class="calepin-syntax-scope-22">typst-doc</span> man/<span class="calepin-syntax-scope-25"> --</span><span class="calepin-syntax-scope-28">template</span> mine.typ<span class="calepin-syntax-scope-25"> -</span><span class="calepin-syntax-scope-28">o</span> reference/
 </code></pre></div><p>The template is inlined rather than imported, so every entry compiles on its own with no file beside it. Each one therefore carries its own copy, which is a fair price for a directory of self-contained documents. The one exception is LaTeX math: an entry containing an <code>\eqn</code> imports <a href="https://typst.app/universe/package/mitex">MiTeX</a>, because Typst math cannot read LaTeX. Nothing else is ever imported.</p><h3 id="the-data">The data</h3><p>Every binding is defined by every entry, empty where the topic has nothing, so a template that reads <code>doc-examples</code> cannot break on the one entry that has none.</p><table><tr><td><strong>Binding</strong></td><td><strong>Type</strong></td><td><strong>Holds</strong></td></tr><tr><td><code>doc-name</code></td><td><code>str</code></td><td>the topic’s identifier</td></tr><tr><td><code>doc-label</code></td><td><code>label</code> or <code>none</code></td><td>the heading’s cross-reference target</td></tr><tr><td><code>doc-title</code></td><td><code>content</code></td><td>the one-line title</td></tr><tr><td><code>doc-aliases</code></td><td><code>array</code></td><td>strings: other names the topic answers to</td></tr><tr><td><code>doc-source</code></td><td><code>str</code> or <code>none</code></td><td>the file, when a name is shared</td></tr><tr><td><code>doc-signature</code></td><td><code>content</code> or <code>none</code></td><td>how the entity is called</td></tr><tr><td><code>doc-params</code></td><td><code>array</code></td><td>dictionaries: <code>names</code>, <code>type</code>, <code>default</code>, <code>optional</code>, <code>body</code></td></tr><tr><td><code>doc-raises</code></td><td><code>array</code></td><td>dictionaries, shaped like <code>doc-params</code></td></tr><tr><td><code>doc-examples</code></td><td><code>array</code></td><td>dictionaries: <code>run</code>, <code>code</code></td></tr><tr><td><code>doc-sections</code></td><td><code>array</code></td><td>dictionaries: the whole entry, in order</td></tr></table><p>The code bindings are raw blocks, so a template that wants to rebuild one has <code>doc-signature.lang</code> and <code>.text</code> to hand, and the same on each example’s <code>code</code>.</p><p>Write against <code>doc-sections</code>. It is the entry in order, each section tagged with what it holds (<code>"prose"</code> with a <code>body</code>, or <code>"params"</code> or <code>"examples"</code> with <code>items</code>), and sections the topic does not have are simply absent. One loop renders everything, with no emptiness guards:</p><div class="sourceCode" data-lang="typ"><pre><code data-lang="typ"><span class="calepin-syntax-scope-6">#</span><span class="calepin-syntax-scope-6">for</span> section <span class="calepin-syntax-scope-6">in</span> doc-sections {
   <span class="calepin-syntax-scope-20">heading</span>(level: <span class="calepin-syntax-scope-23">2</span>, section.title)
   <span class="calepin-syntax-scope-6">if</span> section.kind <span class="calepin-syntax-scope-24">==</span> <span class="calepin-syntax-scope-3">"prose"</span> { section.body }
   <span class="calepin-syntax-scope-6">else</span> <span class="calepin-syntax-scope-6">if</span> section.kind <span class="calepin-syntax-scope-24">==</span> <span class="calepin-syntax-scope-3">"params"</span> { <span class="calepin-syntax-scope-20">my-params</span>(section.items) }
   <span class="calepin-syntax-scope-6">else</span> <span class="calepin-syntax-scope-6">if</span> section.kind <span class="calepin-syntax-scope-24">==</span> <span class="calepin-syntax-scope-3">"examples"</span> { <span class="calepin-syntax-scope-20">my-examples</span>(section.items) }
-}</code></pre></div><p>Because the order is data rather than control flow, reordering sections, retitling them, or translating their headings is list manipulation, not an edit to the loop.</p><h3 id="writing-one">Writing one</h3><p><code>--output</code> writes two extra files beside the manual:</p><ul><li><code>template-default.typ</code>, the template that produced it. Passing it back with <code>--template</code> reproduces the same output exactly, so it is a working starting point rather than a sketch.</li><li><code>example-data.typ</code>, one entry’s data block, filled in with every field a topic can have.</li></ul><p>Both are rewritten on every run, so start by copying the default somewhere safe:</p><div class="sourceCode" data-lang="sh"><pre><code data-lang="sh"><span class="calepin-syntax-scope-22">typst-doc</span> man/<span class="calepin-syntax-scope-25"> -</span><span class="calepin-syntax-scope-28">o</span> reference/
+}</code></pre></div><p>Because the order is data rather than control flow, reordering sections, retitling them, or translating their headings is list manipulation, not an edit to the loop.</p><h3 id="a-complete-entry">A complete entry</h3><p>Here is a whole data block, as <code>typst-doc</code> emits it: one entry filled in with every field a topic can have. A template is inlined below a block of exactly this shape.</p><div class="sourceCode" data-lang="typ"><pre><code data-lang="typ"><span class="calepin-syntax-scope-6">#</span><span class="calepin-syntax-scope-6">let</span> doc-name <span class="calepin-syntax-scope-24">=</span> <span class="calepin-syntax-scope-3">"mean_ci"</span>
+<span class="calepin-syntax-scope-6">#</span><span class="calepin-syntax-scope-6">let</span> doc-label <span class="calepin-syntax-scope-24">=</span> &lt;mean_ci>
+<span class="calepin-syntax-scope-6">#</span><span class="calepin-syntax-scope-6">let</span> doc-title <span class="calepin-syntax-scope-24">=</span> [Confidence interval for a mean]
+<span class="calepin-syntax-scope-6">#</span><span class="calepin-syntax-scope-6">let</span> doc-aliases <span class="calepin-syntax-scope-24">=</span> (<span class="calepin-syntax-scope-3">"mean_ci"</span>,)
+<span class="calepin-syntax-scope-6">#</span><span class="calepin-syntax-scope-6">let</span> doc-source <span class="calepin-syntax-scope-24">=</span> <span class="calepin-syntax-scope-6">none</span>
+<span class="calepin-syntax-scope-6">#</span><span class="calepin-syntax-scope-6">let</span> doc-signature <span class="calepin-syntax-scope-24">=</span> ```r
+mean_ci(x, level = 0.95)
+```
+<span class="calepin-syntax-scope-6">#</span><span class="calepin-syntax-scope-6">let</span> doc-params <span class="calepin-syntax-scope-24">=</span> (
+  (names: (<span class="calepin-syntax-scope-3">"x"</span>,), type: <span class="calepin-syntax-scope-3">"numeric"</span>, default: <span class="calepin-syntax-scope-6">none</span>, optional: <span class="calepin-syntax-scope-6">false</span>, body: [A numeric vector<span class="calepin-syntax-scope-5">\.</span>]),
+  (names: (<span class="calepin-syntax-scope-3">"level"</span>,), type: <span class="calepin-syntax-scope-3">"numeric"</span>, default: <span class="calepin-syntax-scope-3">"0.95"</span>, optional: <span class="calepin-syntax-scope-6">true</span>, body: [Coverage probability<span class="calepin-syntax-scope-5">\.</span>]),
+)
+<span class="calepin-syntax-scope-6">#</span><span class="calepin-syntax-scope-6">let</span> doc-raises <span class="calepin-syntax-scope-24">=</span> (
+  (names: (<span class="calepin-syntax-scope-3">"ValueError"</span>,), type: <span class="calepin-syntax-scope-6">none</span>, default: <span class="calepin-syntax-scope-6">none</span>, optional: <span class="calepin-syntax-scope-6">false</span>, body: [If x is empty<span class="calepin-syntax-scope-5">\.</span>]),
+)
+<span class="calepin-syntax-scope-6">#</span><span class="calepin-syntax-scope-6">let</span> doc-examples <span class="calepin-syntax-scope-24">=</span> (
+  (run: <span class="calepin-syntax-scope-6">true</span>, code: ```r
+mean_ci(rnorm(100))
+```),
+  (run: <span class="calepin-syntax-scope-6">false</span>, code: ```r
+mean_ci(x, level = 0.99)
+```),
+)
+<span class="calepin-syntax-scope-6">#</span><span class="calepin-syntax-scope-6">let</span> doc-sections <span class="calepin-syntax-scope-24">=</span> (
+  (id: <span class="calepin-syntax-scope-3">"description"</span>, title: [Description], kind: <span class="calepin-syntax-scope-3">"prose"</span>, body: [
+Computes a normal-approximation confidence interval<span class="calepin-syntax-scope-5">\.</span>
+  ]),
+  (id: <span class="calepin-syntax-scope-3">"arguments"</span>, title: [Arguments], kind: <span class="calepin-syntax-scope-3">"params"</span>, items: doc-params),
+  (id: <span class="calepin-syntax-scope-3">"details"</span>, title: [Details], kind: <span class="calepin-syntax-scope-3">"prose"</span>, body: [
+The interval is symmetric about the sample mean<span class="calepin-syntax-scope-5">\.</span>
+  ]),
+  (id: <span class="calepin-syntax-scope-3">"value"</span>, title: [Value], kind: <span class="calepin-syntax-scope-3">"prose"</span>, body: [
+A numeric vector of length two<span class="calepin-syntax-scope-5">\.</span>
+  ]),
+  (id: <span class="calepin-syntax-scope-3">"raises"</span>, title: [Raises], kind: <span class="calepin-syntax-scope-3">"params"</span>, items: doc-raises),
+  (id: <span class="calepin-syntax-scope-3">"custom"</span>, title: [Caveats], kind: <span class="calepin-syntax-scope-3">"prose"</span>, body: [
+An unrecognised section keeps its own heading<span class="calepin-syntax-scope-5">\.</span>
+  ]),
+  (id: <span class="calepin-syntax-scope-3">"note"</span>, title: [Note], kind: <span class="calepin-syntax-scope-3">"prose"</span>, body: [
+Assumes approximate normality<span class="calepin-syntax-scope-5">\.</span>
+  ]),
+  (id: <span class="calepin-syntax-scope-3">"examples"</span>, title: [Examples], kind: <span class="calepin-syntax-scope-3">"examples"</span>, items: doc-examples),
+  (id: <span class="calepin-syntax-scope-3">"seealso"</span>, title: [See Also], kind: <span class="calepin-syntax-scope-3">"prose"</span>, body: [
+t<span class="calepin-syntax-scope-5">\.</span>test
+  ]),
+  (id: <span class="calepin-syntax-scope-3">"references"</span>, title: [References], kind: <span class="calepin-syntax-scope-3">"prose"</span>, body: [
+Casella and Berger <span class="calepin-syntax-scope-5">\(</span>2002<span class="calepin-syntax-scope-5">\)</span><span class="calepin-syntax-scope-5">\.</span>
+  ]),
+  (id: <span class="calepin-syntax-scope-3">"author"</span>, title: [Author], kind: <span class="calepin-syntax-scope-3">"prose"</span>, body: [
+A<span class="calepin-syntax-scope-5">\.</span> Person
+  ]),
+)</code></pre></div><p>A real entry differs only in what it has: the bindings are all there either way, empty where the topic said nothing.</p><h3 id="the-default-template">The default template</h3><p>This is the template every manual is built with unless <code>--template</code> says otherwise, and it is short enough to read in one sitting. Two helpers, then one loop over <code>doc-sections</code>.</p><div class="sourceCode" data-lang="typ"><pre><code data-lang="typ"><span class="calepin-syntax-scope-6">#</span><span class="calepin-syntax-scope-6">let</span> <span class="calepin-syntax-scope-20">doc-render-params</span>(items) <span class="calepin-syntax-scope-24">=</span> <span class="calepin-syntax-scope-20">table</span>(
+  columns: <span class="calepin-syntax-scope-23">2</span>,
+  stroke: <span class="calepin-syntax-scope-6">none</span>,
+  <span class="calepin-syntax-scope-24">..</span>items
+    .<span class="calepin-syntax-scope-20">map</span>(param <span class="calepin-syntax-scope-24">=></span> (
+      <span class="calepin-syntax-scope-20">raw</span>(param.names.<span class="calepin-syntax-scope-20">join</span>(<span class="calepin-syntax-scope-3">", "</span>)),
+      <span class="calepin-syntax-scope-6">if</span> param.type <span class="calepin-syntax-scope-24">==</span> <span class="calepin-syntax-scope-6">none</span> { param.body } <span class="calepin-syntax-scope-6">else</span> [<span class="calepin-syntax-scope-20">#</span><span class="calepin-syntax-scope-20">raw</span>(param.type) <span class="calepin-syntax-scope-5">\</span> #param.body],
+    ))
+    .<span class="calepin-syntax-scope-20">flatten</span>()
+)
+
+<span class="calepin-syntax-scope-6">#</span><span class="calepin-syntax-scope-6">let</span> <span class="calepin-syntax-scope-20">doc-render-examples</span>(items) <span class="calepin-syntax-scope-24">=</span> items.<span class="calepin-syntax-scope-20">map</span>(example <span class="calepin-syntax-scope-24">=></span> example.code).<span class="calepin-syntax-scope-20">join</span>(<span class="calepin-syntax-scope-20">parbreak</span>())
+
+<span class="calepin-syntax-scope-20">#</span><span class="calepin-syntax-scope-20">heading</span>(level: <span class="calepin-syntax-scope-23">1</span>, doc-title) #doc-label
+
+#doc-signature
+
+<span class="calepin-syntax-scope-6">#</span><span class="calepin-syntax-scope-6">if</span> doc-source <span class="calepin-syntax-scope-24">!=</span> <span class="calepin-syntax-scope-6">none</span> [
+  <span class="calepin-syntax-scope-20">#</span><span class="calepin-syntax-scope-20">emph</span>[Defined in] <span class="calepin-syntax-scope-20">#</span><span class="calepin-syntax-scope-20">raw</span>(doc-source)
+]
+
+<span class="calepin-syntax-scope-6">#</span><span class="calepin-syntax-scope-6">for</span> section <span class="calepin-syntax-scope-6">in</span> doc-sections {
+  <span class="calepin-syntax-scope-20">heading</span>(level: <span class="calepin-syntax-scope-23">2</span>, section.title)
+  <span class="calepin-syntax-scope-6">if</span> section.kind <span class="calepin-syntax-scope-24">==</span> <span class="calepin-syntax-scope-3">"prose"</span> {
+    section.body
+  } <span class="calepin-syntax-scope-6">else</span> <span class="calepin-syntax-scope-6">if</span> section.kind <span class="calepin-syntax-scope-24">==</span> <span class="calepin-syntax-scope-3">"params"</span> {
+    <span class="calepin-syntax-scope-20">doc-render-params</span>(section.items)
+  } <span class="calepin-syntax-scope-6">else</span> <span class="calepin-syntax-scope-6">if</span> section.kind <span class="calepin-syntax-scope-24">==</span> <span class="calepin-syntax-scope-3">"examples"</span> {
+    <span class="calepin-syntax-scope-20">doc-render-examples</span>(section.items)
+  }
+}</code></pre></div><h3 id="writing-one">Writing one</h3><p>A run writes the manual and nothing else. To start from the default rather than a blank file, ask for it:</p><div class="sourceCode" data-lang="sh"><pre><code data-lang="sh"><span class="calepin-syntax-scope-22">typst-doc</span> man/<span class="calepin-syntax-scope-25"> --</span><span class="calepin-syntax-scope-28">template-starter</span><span class="calepin-syntax-scope-25"> -</span><span class="calepin-syntax-scope-28">o</span> reference/
 <span class="calepin-syntax-scope-22">cp</span> reference/template-default.typ mine.typ
-</code></pre></div><p>Edit <code>mine.typ</code>, then preview it against the example data. Those two files are a complete document once concatenated, so you can see the result without building a manual first:</p><div class="sourceCode" data-lang="sh"><pre><code data-lang="sh"><span class="calepin-syntax-scope-22">cat</span> reference/example-data.typ mine.typ <span class="calepin-syntax-scope-24">|</span> <span class="calepin-syntax-scope-22">typst</span> compile - preview.pdf
+</code></pre></div><p>That writes <code>template-default.typ</code> beside the manual: the template above, with the binding table repeated as a comment header. It is the template that produced the manual next to it, so passing it back with <code>--template</code> reproduces the same output exactly, which makes it a working starting point rather than a sketch. It is overwritten whenever the flag is given, so edit a copy under another name.</p><p>Preview that copy against the entry above. Save the data block to <code>example-data.typ</code>; the two files are a complete document once concatenated, so you can see the result without building a manual first:</p><div class="sourceCode" data-lang="sh"><pre><code data-lang="sh"><span class="calepin-syntax-scope-22">cat</span> example-data.typ mine.typ <span class="calepin-syntax-scope-24">|</span> <span class="calepin-syntax-scope-22">typst</span> compile - preview.pdf
 </code></pre></div><p>When it looks right, build the manual with it:</p><div class="sourceCode" data-lang="sh"><pre><code data-lang="sh"><span class="calepin-syntax-scope-22">typst-doc</span> man/<span class="calepin-syntax-scope-25"> --</span><span class="calepin-syntax-scope-28">template</span> mine.typ<span class="calepin-syntax-scope-25"> -</span><span class="calepin-syntax-scope-28">o</span> reference/
 </code></pre></div><p>Two things to know while editing. Names beginning with <code>doc-</code> belong to the data contract, so give a template’s own helpers any other name. And a template is code rather than markup, so a mistyped binding is caught when Typst compiles the manual, not when <code>typst-doc</code> writes it.</p><h2 id="output-validity">Output validity</h2><p>The writer emits strings, so <code>typst-syntax</code>, Typst’s own parser, doubles as a validator: every test asserts that generated markup parses with no errors. The same check runs over a whole directory of <code>.Rd</code>, <code>.py</code>, <code>.typ</code>, or man page files, and over the fixture corpus in CI on every push:</p><div class="sourceCode" data-lang="sh"><pre><code data-lang="sh"><span class="calepin-syntax-scope-22">cargo</span> run<span class="calepin-syntax-scope-25"> --</span><span class="calepin-syntax-scope-28">example</span> validate<span class="calepin-syntax-scope-24"> --</span> tests/corpus
 </code></pre></div>

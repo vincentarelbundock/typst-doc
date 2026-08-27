@@ -44,9 +44,8 @@ the rest), every one of them defined for every topic, empty where the topic \
 has nothing. The second is the template, which renders them, and is the only \
 half that decides how an entry looks. It is inlined rather than imported, so \
 an entry compiles on its own with nothing beside it. Pass --template FILE to \
-supply your own; with --output, the default is written to \
-template-default.typ, and one entry's data to example-data.typ, as a place to \
-start.
+supply your own; --template-starter writes the default beside the manual as a \
+place to start.
 
 Each topic title is a level-1 heading. To nest the output under a title of \
 your own, set the offset where you include it: `#set heading(offset: 1)`.
@@ -77,11 +76,17 @@ pub struct Cli {
     pub output: Option<PathBuf>,
 
     /// A Typst file whose contents replace the default template: the half of
-    /// each generated document that renders the data block above it. The
-    /// default is written to `template-default.typ` alongside the manual
-    /// whenever `--output` is given, as a starting point.
+    /// each generated document that renders the data block above it. See
+    /// `--template-starter` for the default, as a starting point.
     #[arg(long, value_name = "FILE")]
     pub template: Option<PathBuf>,
+
+    /// Also write the default template to `template-default.typ` in the
+    /// output directory, overwriting what is there, as a starting point for
+    /// `--template`. Ignored without `--output`; otherwise a run writes only
+    /// the manual.
+    #[arg(long)]
+    pub template_starter: bool,
 
     /// Include internal topics: `\keyword{internal}` in R (the signal
     /// pkgdown filters on), and `_`-prefixed names in Python. Skipped by

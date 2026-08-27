@@ -225,7 +225,7 @@ decides how it _looks_. So there are no styling options: to change how a manual
 is typeset, replace the template.
 
 ```sh
-typst-doc man/ -o reference/          # writes template-default.typ too
+typst-doc man/ -o reference/
 typst-doc man/ --template mine.typ -o reference/
 ```
 
@@ -282,30 +282,133 @@ Because the order is data rather than control flow, reordering sections,
 retitling them, or translating their headings is list manipulation, not an edit
 to the loop.
 
+== A complete entry
+
+Here is a whole data block, as `typst-doc` emits it: one entry filled in with
+every field a topic can have. A template is inlined below a block of exactly
+this shape.
+
+````typ
+#let doc-name = "mean_ci"
+#let doc-label = <mean_ci>
+#let doc-title = [Confidence interval for a mean]
+#let doc-aliases = ("mean_ci",)
+#let doc-source = none
+#let doc-signature = ```r
+mean_ci(x, level = 0.95)
+```
+#let doc-params = (
+  (names: ("x",), type: "numeric", default: none, optional: false, body: [A numeric vector\.]),
+  (names: ("level",), type: "numeric", default: "0.95", optional: true, body: [Coverage probability\.]),
+)
+#let doc-raises = (
+  (names: ("ValueError",), type: none, default: none, optional: false, body: [If x is empty\.]),
+)
+#let doc-examples = (
+  (run: true, code: ```r
+mean_ci(rnorm(100))
+```),
+  (run: false, code: ```r
+mean_ci(x, level = 0.99)
+```),
+)
+#let doc-sections = (
+  (id: "description", title: [Description], kind: "prose", body: [
+Computes a normal-approximation confidence interval\.
+  ]),
+  (id: "arguments", title: [Arguments], kind: "params", items: doc-params),
+  (id: "details", title: [Details], kind: "prose", body: [
+The interval is symmetric about the sample mean\.
+  ]),
+  (id: "value", title: [Value], kind: "prose", body: [
+A numeric vector of length two\.
+  ]),
+  (id: "raises", title: [Raises], kind: "params", items: doc-raises),
+  (id: "custom", title: [Caveats], kind: "prose", body: [
+An unrecognised section keeps its own heading\.
+  ]),
+  (id: "note", title: [Note], kind: "prose", body: [
+Assumes approximate normality\.
+  ]),
+  (id: "examples", title: [Examples], kind: "examples", items: doc-examples),
+  (id: "seealso", title: [See Also], kind: "prose", body: [
+t\.test
+  ]),
+  (id: "references", title: [References], kind: "prose", body: [
+Casella and Berger \(2002\)\.
+  ]),
+  (id: "author", title: [Author], kind: "prose", body: [
+A\. Person
+  ]),
+)
+````
+
+A real entry differs only in what it has: the bindings are all there either
+way, empty where the topic said nothing.
+
+== The default template
+
+This is the template every manual is built with unless `--template` says
+otherwise, and it is short enough to read in one sitting. Two helpers, then
+one loop over `doc-sections`.
+
+```typ
+#let doc-render-params(items) = table(
+  columns: 2,
+  stroke: none,
+  ..items
+    .map(param => (
+      raw(param.names.join(", ")),
+      if param.type == none { param.body } else [#raw(param.type) \ #param.body],
+    ))
+    .flatten()
+)
+
+#let doc-render-examples(items) = items.map(example => example.code).join(parbreak())
+
+#heading(level: 1, doc-title) #doc-label
+
+#doc-signature
+
+#if doc-source != none [
+  #emph[Defined in] #raw(doc-source)
+]
+
+#for section in doc-sections {
+  heading(level: 2, section.title)
+  if section.kind == "prose" {
+    section.body
+  } else if section.kind == "params" {
+    doc-render-params(section.items)
+  } else if section.kind == "examples" {
+    doc-render-examples(section.items)
+  }
+}
+```
+
 == Writing one
 
-`--output` writes two extra files beside the manual:
-
-- `template-default.typ`, the template that produced it. Passing it back with
-  `--template` reproduces the same output exactly, so it is a working starting
-  point rather than a sketch.
-- `example-data.typ`, one entry's data block, filled in with every field a
-  topic can have.
-
-Both are rewritten on every run, so start by copying the default somewhere
-safe:
+A run writes the manual and nothing else. To start from the default rather
+than a blank file, ask for it:
 
 ```sh
-typst-doc man/ -o reference/
+typst-doc man/ --template-starter -o reference/
 cp reference/template-default.typ mine.typ
 ```
 
-Edit `mine.typ`, then preview it against the example data. Those two files are
-a complete document once concatenated, so you can see the result without
-building a manual first:
+That writes `template-default.typ` beside the manual: the template above,
+with the binding table repeated as a comment header. It is the template that
+produced the manual next to it, so passing it back with `--template`
+reproduces the same output exactly, which makes it a working starting point
+rather than a sketch. It is overwritten whenever the flag is given, so edit a
+copy under another name.
+
+Preview that copy against the entry above. Save the data block to
+`example-data.typ`; the two files are a complete document once concatenated,
+so you can see the result without building a manual first:
 
 ```sh
-cat reference/example-data.typ mine.typ | typst compile - preview.pdf
+cat example-data.typ mine.typ | typst compile - preview.pdf
 ```
 
 When it looks right, build the manual with it:

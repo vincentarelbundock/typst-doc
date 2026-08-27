@@ -141,7 +141,9 @@ fn main() -> Result<()> {
         let file = dir.join(file_name);
         std::fs::write(&file, document).with_context(|| format!("writing {}", file.display()))?;
     }
-    write_template_starters(dir, &names)?;
+    if cli.template_starter {
+        write_template_default(dir, &names)?;
+    }
     write_index(dir, &names)
 }
 
@@ -184,105 +186,23 @@ fn apply_package_api(api: &typ::package::Api, topics: &mut [(PathBuf, Topic)]) -
     unexported
 }
 
-/// The two files a template author starts from: the default template, and one
-/// entry's data block showing what it has to work with.
+/// The default template, written beside the manual when `--template-starter`
+/// asks for it: a starting point for `--template`.
 ///
-/// Both are generated rather than written by hand. The template is the one the
-/// binary actually inlines, and the example data comes out of the same emitter
-/// as every real entry, so neither can drift from what `--template` is handed.
-/// Both are rewritten on every run, which is why the template says to copy it
-/// before editing.
-fn write_template_starters(dir: &Path, names: &[String]) -> Result<()> {
-    for reserved in ["template-default.typ", "example-data.typ"] {
-        if names.iter().any(|name| name == reserved) {
-            eprintln!("warning: a topic file is named {reserved}; not writing it");
-            return Ok(());
-        }
+/// It is generated rather than kept as a file of its own, from the same
+/// constant the binary inlines into every entry, so what a template author
+/// edits cannot drift from what a manual is actually built with. Nothing
+/// writes it unless it is asked for, so an ordinary run leaves a template
+/// being edited beside the manual alone.
+fn write_template_default(dir: &Path, names: &[String]) -> Result<()> {
+    const FILE_NAME: &str = "template-default.typ";
+    if names.iter().any(|name| name == FILE_NAME) {
+        eprintln!("warning: a topic file is named {FILE_NAME}; not writing it");
+        return Ok(());
     }
-
-    let file = dir.join("template-default.typ");
+    let file = dir.join(FILE_NAME);
     std::fs::write(&file, typst_doc::DEFAULT_TEMPLATE)
-        .with_context(|| format!("writing {}", file.display()))?;
-
-    // An empty template renders nothing, leaving the data block alone.
-    let data = topic_to_typst(
-        &example_topic(),
-        &Entry::default(),
-        &Options {
-            template: Some(String::new()),
-            ..Options::default()
-        },
-    );
-    let file = dir.join("example-data.typ");
-    std::fs::write(
-        &file,
-        format!(
-            "// One entry's data block, as `typst-doc` emits it. A template is \
-             inlined\n// below a block of exactly this shape. See \
-             template-default.typ.\n\n{data}"
-        ),
-    )
-    .with_context(|| format!("writing {}", file.display()))
-}
-
-/// A topic exercising every field a template can read, so the example data is
-/// complete rather than whatever the first real entry happened to contain.
-fn example_topic() -> Topic {
-    use typst_doc::ir::{Block, Example, Inline, Param, Section};
-
-    let prose = |text: &str| vec![Block::Paragraph(vec![Inline::text(text)])];
-    Topic {
-        name: "mean_ci".to_owned(),
-        title: vec![Inline::text("Confidence interval for a mean")],
-        aliases: vec!["mean_ci".to_owned()],
-        keywords: Vec::new(),
-        signature: Some("mean_ci(x, level = 0.95)".to_owned()),
-        lang: Some("r".to_owned()),
-        description: prose("Computes a normal-approximation confidence interval."),
-        details: prose("The interval is symmetric about the sample mean."),
-        params: vec![
-            Param {
-                names: vec!["x".to_owned()],
-                ty: Some("numeric".to_owned()),
-                default: None,
-                optional: false,
-                body: prose("A numeric vector."),
-            },
-            Param {
-                names: vec!["level".to_owned()],
-                ty: Some("numeric".to_owned()),
-                default: Some("0.95".to_owned()),
-                optional: true,
-                body: prose("Coverage probability."),
-            },
-        ],
-        value: prose("A numeric vector of length two."),
-        raises: vec![Param {
-            names: vec!["ValueError".to_owned()],
-            ty: None,
-            default: None,
-            optional: false,
-            body: prose("If x is empty."),
-        }],
-        examples: vec![
-            Example {
-                code: "mean_ci(rnorm(100))".to_owned(),
-                run: true,
-            },
-            Example {
-                code: "mean_ci(x, level = 0.99)".to_owned(),
-                run: false,
-            },
-        ],
-        seealso: prose("t.test"),
-        references: prose("Casella and Berger (2002)."),
-        note: prose("Assumes approximate normality."),
-        author: prose("A. Person"),
-        sections: vec![Section {
-            title: vec![Inline::text("Caveats")],
-            body: prose("An unrecognised section keeps its own heading."),
-        }],
-    }
+        .with_context(|| format!("writing {}", file.display()))
 }
 
 /// The entry point of a split manual: a table of contents followed by an

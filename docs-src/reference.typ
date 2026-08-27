@@ -19,12 +19,13 @@ Generated from `man/typst-doc.1` by `typst-doc` itself:
 #let doc-aliases = ()
 #let doc-source = none
 #let doc-signature = ```sh
-typst-doc [-o|--output] [--template] [--include-internal] [-h|--help]
-          [-V|--version] <INPUTS>
+typst-doc [-o|--output] [--template] [--template-starter]
+          [--include-internal] [-h|--help] [-V|--version] <INPUTS>
 ```
 #let doc-params = (
   (names: ("-o", "--output <OUTPUT>"), type: none, default: none, optional: false, body: [Directory to write the manual into, created if missing: one \`\<topic\>\.typ\` file per topic, plus an \`index\.typ\` that outlines and includes them all\. Without it, the whole manual goes to stdout as a single document]),
-  (names: ("--template <FILE>",), type: none, default: none, optional: false, body: [A Typst file whose contents replace the default template: the half of each generated document that renders the data block above it\. The default is written to \`template-default\.typ\` alongside the manual whenever \`\-\-output\` is given, as a starting point]),
+  (names: ("--template <FILE>",), type: none, default: none, optional: false, body: [A Typst file whose contents replace the default template: the half of each generated document that renders the data block above it\. See \`\-\-template-starter\` for the default, as a starting point]),
+  (names: ("--template-starter",), type: none, default: none, optional: false, body: [Also write the default template to \`template-default\.typ\` in the output directory, overwriting what is there, as a starting point for \`\-\-template\`\. Ignored without \`\-\-output\`; otherwise a run writes only the manual]),
   (names: ("--include-internal",), type: none, default: none, optional: false, body: [Include internal topics: \`\\keyword{internal}\` in R \(the signal pkgdown filters on\), and \`\_\`-prefixed names in Python\. Skipped by default\. Typst \`\_\` definitions are always private]),
   (names: ("-h", "--help"), type: none, default: none, optional: false, body: [Print help \(see a summary with '-h'\)]),
   (names: ("-V", "--version"), type: none, default: none, optional: false, body: [Print version]),
@@ -42,7 +43,7 @@ A Typst package is read through its entry point: each definition is named by the
 
 Four input languages are recognised, by extension: R documentation \(\.Rd\), Python modules and packages \(\.py\), Typst source documented with \/\// comments \(\.typ\), and Unix manual pages in either macro package, man\(7\) or mdoc\(7\) \(a section number such as \.1 or \.3, or \.man\)\.
 
-Each generated document is in two halves\. The first binds the topic's content to a fixed set of doc- variables \(doc-title, doc-params, doc-sections, and the rest\), every one of them defined for every topic, empty where the topic has nothing\. The second is the template, which renders them, and is the only half that decides how an entry looks\. It is inlined rather than imported, so an entry compiles on its own with nothing beside it\. Pass \-\-template FILE to supply your own; with \-\-output, the default is written to template-default\.typ, and one entry's data to example-data\.typ, as a place to start\.
+Each generated document is in two halves\. The first binds the topic's content to a fixed set of doc- variables \(doc-title, doc-params, doc-sections, and the rest\), every one of them defined for every topic, empty where the topic has nothing\. The second is the template, which renders them, and is the only half that decides how an entry looks\. It is inlined rather than imported, so an entry compiles on its own with nothing beside it\. Pass \-\-template FILE to supply your own; \-\-template-starter writes the default beside the manual as a place to start\.
 
 Each topic title is a level-1 heading\. To nest the output under a title of your own, set the offset where you include it: \`\#set heading\(offset: 1\)\`\.
 

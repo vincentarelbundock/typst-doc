@@ -6,6 +6,29 @@ follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## Unreleased
 
+## 0.0.3
+
+### Changed
+
+- **`--output` writes only the manual.** A run no longer leaves
+  `template-default.typ` and `example-data.typ` beside the topic files, so the
+  output directory holds one file per entry plus `index.typ` and nothing that
+  a later run will overwrite. The default template is now written only when
+  `--template-starter` asks for it, and a complete example data block lives on
+  the website instead of being emitted.
+
+### Added
+
+- **`--template-starter`.** Writes the default template to
+  `template-default.typ` in the output directory, as a starting point for
+  `--template`.
+
+### Removed
+
+- **`example-data.typ`.** The website carries a full data block, filled in
+  with every field a topic can have, which is the same thing without a
+  generated file to keep out of the way.
+
 ## 0.0.2
 
 ### Added
