@@ -6,7 +6,7 @@ follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## Unreleased
 
-## 0.1.0
+## 0.0.1
 
 First release. Reads documentation from four sources and writes Typst markup:
 R documentation (`.Rd`), Python modules and packages, Typst source documented
