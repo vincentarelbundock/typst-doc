@@ -32,7 +32,7 @@ pub fn parse(source: &str, path: &str) -> Result<Vec<Topic>, ParseError> {
 /// Parse Python source, naming every entity under `module`.
 ///
 /// The module name prefixes every topic, so `fit` in `mypkg/core.py` is
-/// `mypkg.core.fit` — how a reader imports it, and what tells it apart from
+/// `mypkg.core.fit`: how a reader imports it, and what tells it apart from
 /// the `fit` in a sibling module.
 pub fn parse_module(source: &str, path: &str, module: &str) -> Result<Vec<Topic>, ParseError> {
     let suite = ast::Suite::parse(source, path)?;
@@ -302,7 +302,7 @@ fn returns(blocks: &[PyBlock]) -> Vec<Block> {
                 }
                 if let Some(description) = &value.description {
                     if !parts.is_empty() {
-                        parts.push(Inline::text(" — "));
+                        parts.push(Inline::text(": "));
                     }
                     parts.extend(inlines(&unwrap_lines(description.trim())));
                 }
@@ -373,10 +373,10 @@ fn prose(text: &str) -> Vec<Block> {
 /// Three spellings are common enough to be worth reading, and all three mean
 /// the same thing to a reader: a piece of code.
 ///
-/// - `` ``literal`` `` — reStructuredText inline literal.
-/// - ``:role:`target` `` — an interpreted-text role such as `:func:`; the role
+/// - `` ``literal`` ``: reStructuredText inline literal.
+/// - ``:role:`target` ``: an interpreted-text role such as `:func:`; the role
 ///   is dropped and its target kept, since Typst has nothing to link it to.
-/// - `` `code` `` — a single-backtick span, Markdown's code and reST's default
+/// - `` `code` ``: a single-backtick span, Markdown's code and reST's default
 ///   role. Both intend code, so both render as code.
 ///
 /// Anything unterminated is left as text rather than swallowing the rest of the
@@ -396,7 +396,7 @@ fn inlines(text: &str) -> Vec<Inline> {
         let (before, from) = rest.split_at(at);
         pending.push_str(before);
 
-        // `:role:`target`` — only when a backquote actually follows the role.
+        // `:role:`target``, only when a backquote actually follows the role.
         if let Some(after_colon) = from.strip_prefix(':') {
             match role_target(after_colon) {
                 Some((target, tail)) => {

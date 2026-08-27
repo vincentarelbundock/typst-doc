@@ -5,13 +5,13 @@ producing `ir::Topic` values rendered by the existing Typst writer. The dialect
 is compatible with what the `tidy` Typst package (v0.4.3) consumes today, with
 three deliberate, documented divergences.
 
-Read these files before writing code — they are the contract:
+Read these files before writing code; they are the contract:
 
-- `src/ir/{topic,block,inline}.rs` — the IR every reader targets.
-- `src/r/mod.rs` and `src/python/mod.rs` — the two existing readers; match
+- `src/ir/{topic,block,inline}.rs`: the IR every reader targets.
+- `src/r/mod.rs` and `src/python/mod.rs`: the two existing readers; match
   their structure, comment density, and naming.
-- `src/typst/mod.rs` — the writer.
-- `README.md` — the architecture ("one crate, `ir` depends on nothing").
+- `src/typst/mod.rs`: the writer.
+- `README.md`: the architecture ("one crate, `ir` depends on nothing").
 
 ## Background
 
@@ -48,7 +48,7 @@ convention established by the `tidy` package. Example (abridged from mosaic):
 
 Key property of this dialect, and the reason the reader is shaped the way it
 is: **the doc body is already Typst markup.** It must pass through to the
-output verbatim, never escaped and never re-parsed into the prose IR — any
+output verbatim, never escaped and never re-parsed into the prose IR, since any
 round-trip through `Block::Paragraph`/`Inline::Text` would escape markup the
 author wrote deliberately. `Block::Raw` (which exists) is the primary carrier,
 not the escape hatch it is for the R reader.
@@ -65,7 +65,7 @@ A doc block immediately preceding a `#let` (or `let` inside code mode)
 documents that definition. A doc block inside a closure's parameter list,
 immediately preceding a parameter, documents that parameter.
 
-### Type annotations — divergence 1
+### Type annotations: divergence 1
 
 If the **final non-empty line** of a doc block starts (after trimming) with
 `->`, that line is the type annotation: the remainder is split on `|`, each
@@ -77,7 +77,7 @@ tidy splits on the *last `->` occurring anywhere in the block*, so prose like
 that. Line-anchoring is what the convention plainly intends and what real
 corpora (mosaic) actually write.
 
-### Sections — divergence 2 (an extension, not a break)
+### Sections: divergence 2 (an extension, not a break)
 
 Level-1 Typst headings (`= Title`) at the top level of a definition's doc body
 partition it into sections. Matching is case-insensitive on the trimmed
@@ -95,7 +95,7 @@ heading text:
 
 Content before the first heading: the first paragraph (up to the first blank
 line) is the `title`; the rest is `description`. Each region becomes a single
-`Block::Raw` preserving internal blank lines — do not split into paragraphs.
+`Block::Raw` preserving internal blank lines; do not split into paragraphs.
 
 `= Examples` maps to a **custom section**, not `Topic::examples`: the examples
 field models bare runnable code (Rd's `\examples`), while a Typst doc body
@@ -104,7 +104,7 @@ freely interleaves prose and fenced code. Rendering it as a section titled
 prose into a code-only shape. Under tidy these headings simply render as
 headings, so the extension degrades gracefully.
 
-### Documented definitions only — divergence 3
+### Documented definitions only: divergence 3
 
 Only definitions carrying a doc block become Topics (tidy lists undocumented
 public functions too). This mirrors the Python reader, where a docstring is
@@ -125,10 +125,10 @@ starts with `_` are always skipped, documented or not.
   caller's job.
 - Variables (`#let x = value`, no parameter list): produce a Topic with
   `signature: None` and no params. The type annotation, if any, goes in the
-  first line of the description as `` `type` `` — or skip rendering it; keep
+  first line of the description as `` `type` ``, or skip rendering it; keep
   whatever is simplest and note it.
 
-## Parsing strategy — this is the point of the exercise
+## Parsing strategy: this is the point of the exercise
 
 **Definition and parameter structure MUST come from the `typst-syntax` CST,
 not from regexes.** Promote `typst-syntax` from `[dev-dependencies]` to
@@ -147,7 +147,7 @@ Approach:
    doc block is the `LineComment` run preceding it inside the params node.
    Parameter name, and default value if present, come from the CST.
 4. **Slice source text over spans** for default values (and any expression
-   text you need) — exactly as `src/python/mod.rs` does with `TextRange`.
+   text you need), exactly as `src/python/mod.rs` does with `TextRange`.
    Never re-render expressions; slicing preserves the author's formatting.
 
 Before implementing, write a small throwaway example (see `examples/dump.rs`
@@ -168,7 +168,7 @@ module comment.
   `name(param, param: default, ..rest) -> type`. Defaults are source-sliced.
   If the result exceeds ~78 chars or has more than 3 parameters, break one
   parameter per line with two-space indent (match how R usage blocks look).
-  Parameter *types* do not appear in the signature — they render in the
+  Parameter *types* do not appear in the signature; they render in the
   Arguments table via `Param::ty`, as the Python reader does.
 - `Topic::params`: one `Param` per documented-or-not parameter, in source
   order. `names`: one name (or `..name` for sink). `ty`: types joined
@@ -178,19 +178,19 @@ module comment.
 
 ## IR and writer changes (small, required)
 
-1. **`Inline::Raw(String)`** — verbatim Typst, written unescaped. Wire it
+1. **`Inline::Raw(String)`**: verbatim Typst, written unescaped. Wire it
    into: the writer's `write_inline` (push verbatim, `at_line_start = false`),
    `to_plain_text` (push as-is), `inlines_contain_math` (false). Rationale
    comment: titles from Typst doc bodies are already markup; `Inline::Text`
    would escape them.
-2. **`Topic::lang: Option<String>`** — the source language for code fences.
+2. **`Topic::lang: Option<String>`**: the source language for code fences.
    The writer currently hardcodes `Some("r")` for both the signature block and
-   examples (`src/typst/mod.rs`, two call sites) — wrong for Python today.
+   examples (`src/typst/mod.rs`, two call sites), which is wrong for Python today.
    Writer uses `topic.lang.as_deref()`; R reader sets `Some("r")`, Python
    `Some("python")`, this reader `Some("typ")`. Update the two existing
    readers and any test expectations this changes.
 
-Both matches on `Block`/`Inline` in the writer are deliberately exhaustive —
+Both matches on `Block`/`Inline` in the writer are deliberately exhaustive;
 extend them, never add a `_` arm.
 
 ## Wiring
@@ -198,12 +198,12 @@ extend them, never add a `_` arm.
 - New module `src/typ/mod.rs`, exported from `lib.rs` alongside `r` and
   `python`. Entry point: `pub fn parse(source: &str) -> Vec<Topic>` (parsing
   is total: a file with no documented definitions yields an empty Vec; CST
-  errors do not abort — typst-syntax always produces a tree).
+  errors do not abort, since typst-syntax always produces a tree).
 - CLI (`src/main.rs`): extension `typ` routes to the new reader. Multiple
   topics per file already works (Python does it).
 - `examples/validate.rs`: add the `typ` extension to the match.
 - README: add the reader to the pipeline diagram and add a short "Typst doc
-  comments" section documenting the dialect — the three divergences from tidy
+  comments" section documenting the dialect, with the three divergences from tidy
   explicitly. The dialect spec is part of the deliverable.
 
 ## Tests (in `tests/fixtures.rs`, same style as existing ones)
@@ -215,7 +215,7 @@ there: parses with `typst_syntax` and asserts no errors).
    example, several documented params with types and defaults, a `..sink`,
    `-> content` return): assert name, title, signature string, param names /
    types / defaults, and that the body's markup (e.g. a `*bold*` phrase and
-   the code fence) appears **verbatim** in the output — not escaped.
+   the code fence) appears **verbatim** in the output, not escaped.
 2. `->` in prose ("maps keys -> values" mid-body) survives intact; only a
    final `-> int` line becomes the type. This is the tidy-divergence test.
 3. `= Examples` and `= See also` headings route to a custom section and

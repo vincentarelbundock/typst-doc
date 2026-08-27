@@ -61,7 +61,7 @@ pub enum Block {
         otherwise: Vec<Block>,
     },
     /// Verbatim Typst, passed through untouched. The escape hatch of last
-    /// resort — anything routed here is outside the writer's escaping
+    /// resort: anything routed here is outside the writer's escaping
     /// guarantees, so readers should prefer a typed variant.
     Raw(String),
 }

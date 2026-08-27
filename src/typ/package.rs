@@ -94,7 +94,7 @@ impl Walker {
             };
             match import.items {
                 // `#import "m.typ" as m` and `#import "m.typ"` bind the module
-                // itself, so everything in it is reachable behind its name —
+                // itself, so everything in it is reachable behind its name,
                 // including what it imported in turn.
                 Items::Module(binding) => {
                     let prefix = format!("{prefix}{binding}.");

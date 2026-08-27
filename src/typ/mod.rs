@@ -15,7 +15,7 @@
 //! of being dropped at their boundary; any other non-trivia node ends it.
 //!
 //! The doc body is already Typst markup and must reach the output verbatim,
-//! so prose becomes [`Block::Raw`] and titles [`Inline::Raw`] — never
+//! so prose becomes [`Block::Raw`] and titles [`Inline::Raw`], never
 //! `Paragraph`/`Text`, which would escape markup the author wrote
 //! deliberately.
 
@@ -161,7 +161,7 @@ fn split_types(lines: &[String]) -> (Vec<String>, &[String]) {
 ///
 /// Level-1 headings outside code fences split the body; recognised titles
 /// route to the matching topic field. Each region stays one [`Block::Raw`],
-/// internal blank lines included — splitting into paragraphs would mean
+/// internal blank lines included, since splitting into paragraphs would mean
 /// re-parsing markup that must pass through untouched.
 fn fill_body(topic: &mut Topic, lines: &[String]) {
     let mut regions: Vec<(Option<String>, Vec<String>)> = vec![(None, Vec::new())];
@@ -318,8 +318,8 @@ fn default_of(named: &LinkedNode, source: &str) -> Option<String> {
 }
 
 /// Reconstruct the signature; the raw source span is unusable because it
-/// interleaves the `///` blocks. Parameter types stay out — they render in
-/// the Arguments table — but the return type is part of how the function is
+/// interleaves the `///` blocks. Parameter types stay out, since they render in
+/// the Arguments table, but the return type is part of how the function is
 /// called.
 fn signature(name: &str, params: &[Param], types: &[String]) -> String {
     let parts: Vec<String> = params

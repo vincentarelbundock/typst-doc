@@ -29,15 +29,15 @@ used under the MIT License.
 
 Derived files, each of which carries an attribution header:
 
-- `src/typst/escape.rs` — Typst markup and string-literal escaping, ported
+- `src/typst/escape.rs`: Typst markup and string-literal escaping, ported
   from `crates/rd2qmd-mdast/src/typst/mod.rs`.
-- `src/typst/html.rs` — `\out{}` HTML-fragment handling (`html.elem` under a
+- `src/typst/html.rs`: `\out{}` HTML-fragment handling (`html.elem` under a
   `target()` guard, verbatim fallback), ported from
   `crates/rd2qmd-mdast/src/typst/html.rs`.
-- `src/typst/mod.rs` — writer structure and the Rd-to-Typst construct mapping
+- `src/typst/mod.rs`: writer structure and the Rd-to-Typst construct mapping
   (MiTeX for equations, `html.elem` for raw HTML, `#table`/`#terms` for
   parameter lists), ported from `crates/rd2qmd-mdast/src/typst/`.
-- `src/r/mod.rs` — Rd section dispatch and the inline tag mapping, following
+- `src/r/mod.rs`: Rd section dispatch and the inline tag mapping, following
   `crates/rd2qmd-core/`.
 
 ## Dependencies

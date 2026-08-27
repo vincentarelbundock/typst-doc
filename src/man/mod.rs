@@ -1,14 +1,14 @@
 //! The man(7) reader: roff manual-page source to a [`Topic`].
 //!
-//! The dialect is man(7) — the `.TH`/`.SH`/`.TP` macro package every Linux
-//! page is written in — plus the low-level roff escapes those pages use for
+//! The dialect is man(7), the `.TH`/`.SH`/`.TP` macro package every Linux
+//! page is written in, plus the low-level roff escapes those pages use for
 //! fonts (`\fB`), special characters (`\(bu`), and comments (`\"`). BSD's
 //! semantic mdoc(7) macros are a different language and are not read here.
 //!
 //! Unlike Rd and Python docstrings, a man page carries no machine-readable
 //! structure below the section level: `.TP` is "hanging indent", not
 //! "parameter", and `.SH OPTIONS` is a convention rather than a keyword. The
-//! reader therefore works in two passes. The first is purely syntactic — roff
+//! reader therefore works in two passes. The first is purely syntactic: roff
 //! lines become [`Block`]s, with `.TP` runs collapsing into [`Block::Terms`].
 //! The second reads the section *titles* and routes each section to the field
 //! it belongs in, turning the terms of an OPTIONS section into [`Param`]s and
@@ -19,7 +19,7 @@
 //! - Font state persists across lines, so `\fB` on one line bolds the next
 //!   one too, until `\fR` or `\fP`. It is a parser field, not a local.
 //! - `.TP` puts the *tag* on the following line, whatever that line happens
-//!   to be — text, `.B`, or `.BR`. The tag is therefore captured by a pending
+//!   to be: text, `.B`, or `.BR`. The tag is therefore captured by a pending
 //!   flag rather than read from the macro's own arguments.
 
 mod mdoc;
